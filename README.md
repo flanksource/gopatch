@@ -12,6 +12,9 @@ refactoring and restyling.
   - [Apply the patch](#apply-the-patch)
   - [Next steps](#next-steps)
 - [Usage](#usage)
+  - [Commands](#commands)
+    - [Commands that generate a patch](#commands-that-generate-a-patch)
+    - [Commands that use type information](#commands-that-use-type-information)
   - [Options](#options)
 - [Patches](#patches)
   - [Metavariables](#metavariables)
@@ -75,7 +78,14 @@ it with the following command.
 ```bash
 go install github.com/uber-go/gopatch@latest
 ```
-Note: If you're using Go < 1.16, use `go get github.com/uber-go/gopatch@latest` instead.
+
+From a checkout, `make install` does the same thing and additionally stamps the
+version from `git describe`, so `gopatch version` identifies the commit you
+built rather than reporting `unknown`. It installs into `$GOBIN`, or
+`$(go env GOPATH)/bin` when that is unset; pass `INSTALL_BIN=<dir>` to put it
+somewhere else.
+
+Building from source requires Go 1.23 or newer.
 
 ## Your first patch
 
@@ -191,6 +201,214 @@ gopatch [options] pattern ...
 Where pattern specifies one or more Go files, or directories containing Go
 files. For directories, all Go code inside them and their descendants will be
 considered by gopatch.
+
+Flags and patterns may be given in any order, and `gopatch -- <path>` forces a
+path to be treated as a path even when it shares a name with a subcommand.
+
+## Commands
+
+For the common mechanical refactorings you do not need to write a patch at all.
+These subcommands take the change as arguments instead.
+
+```
+gopatch rename struct  <Old> <New>                 [pattern...]
+gopatch rename type    <Old> <New>                 [pattern...]
+gopatch rename func    <old> <new>                 [pattern...]
+gopatch rename package <old> <new>                 [pattern...]
+gopatch rename import  <old-path> <new-path>       [pattern...]
+gopatch rename field   <Struct>.<field> <new>      [pattern...]
+gopatch rename method  <Recv>.<method> <new>       [pattern...]
+
+gopatch add    field   <Struct>.<field> <type>     [pattern...]
+gopatch add    param   <func> <name> <type>        [pattern...]
+gopatch add    struct  <Name> <file.go>
+gopatch add    func    <name> <file.go>            --params '...' --results '...'
+gopatch add    method  <Recv>.<name> <file.go>     --params '...' --results '...'
+
+gopatch delete field   <Struct>.<field>            [pattern...]
+gopatch delete struct  <Name>                      [pattern...]
+gopatch delete type    <Name>                      [pattern...]
+gopatch delete func    <name>                      [pattern...]
+gopatch delete method  <Recv>.<method>             [pattern...]
+
+gopatch edit   field   <Struct>.<field> --type T | --tag '...'
+gopatch edit   func    <name>                      --params '...' --results '...'
+gopatch edit   func    <name>                      --content '...' | --content @file
+gopatch edit   method  <Recv>.<method>             --params '...' --results '...'
+gopatch edit   method  <Recv>.<method>             --content '...' | --content @file
+
+gopatch replace func   <name>            --match <re> --content '...'
+gopatch replace method <Recv>.<method>   --match <re> --content '...'
+```
+
+They are served by two engines, and each command's `--help` says which one it
+uses. Both write their results the same way, so `--diff`, `--print-only` and
+in-place rewriting behave identically whichever is at work.
+
+### Naming the target
+
+Every command above takes its target as a dotted name, and every one of them
+accepts that name qualified with the package or the directory that declares it:
+
+```
+User.Name                     the field, in whichever package declares User
+store.User.Name               ... in the package whose clause is "store"
+example.com/store.User.Name   ... in the package at that import path
+./internal/store:User.Name    ... in the package under that directory
+user.go:User.Name             ... in the package that file belongs to
+```
+
+A path qualifier is separated with `:`, because an import path may contain dots
+and slashes but never a colon. It has to be recognizable as a path, so a bare
+directory is written `./store`, not `store`. The name is split off from the
+right, which is what makes `gopkg.in/yaml.v3.Node` the type `Node` in
+`gopkg.in/yaml.v3` rather than four segments of something.
+
+A qualifier is only needed when the name is ambiguous, and gopatch says so when
+it is instead of choosing a package for you:
+
+```shell
+$ gopatch edit field User.ID --type UUID ./...
+"User" is declared in packages [api store]; qualify field with the one you mean, as in "api.User.ID"
+```
+
+`--package <clause>` is the older spelling of a package-name qualifier and still
+works; giving both is refused rather than resolved by precedence.
+
+For the commands that generate a patch the qualifier does two jobs: it says
+which declaration is meant, *and* it scopes the rewrite to that package. An
+unqualified `edit field User.ID` over a tree where two packages declare `User`
+would otherwise change both. An import path qualifier on
+`rename struct|type|func` additionally does the work of `--import`: naming a
+package by path says that is its identity everywhere, so consumers move with the
+declaration.
+
+`add struct|func|method` are the exception — they never take a qualified name,
+because their `<file.go>` argument already says which package the new
+declaration goes into.
+
+### Commands that generate a patch
+
+`rename struct|type|func|package|import`, `add field|param`, `delete field` and
+`edit field|func` build a gopatch program from their arguments and run it
+through the engine described in the rest of this document. `--print-patch`
+writes that program to stdout instead of applying it, which is the way to see
+exactly what a command is about to do.
+
+```shell
+$ gopatch rename struct HTTPClient Client --package http --print-patch
+@@
+@@
+ package http
+
+-HTTPClient
++Client
+```
+
+`--package` is needed there only because `--print-patch` was given no paths to
+infer the declaring package from.
+
+They rewrite the declaration and every reference in the declaring package. Pass
+`--import <path>` to also rewrite qualified references in packages that import
+it. The declaring package is inferred from the given paths; qualify the target,
+or pass `--package`, when it cannot be inferred or the name is declared in more
+than one.
+
+Because these match by name rather than by type, they work on code that does not
+compile — but a local variable that happens to share the name is rewritten too,
+so review with `--diff` first. Two limits are worth knowing, and both are
+reported rather than silently ignored: a signature change does not update call
+sites, and gopatch cannot add the first import to a file that has none.
+
+### Commands that use type information
+
+`rename field`, `rename method`, `delete struct|type|func|method`,
+`add struct|func|method`, `edit method`, `edit func --content` and `replace`
+cannot be expressed as a patch. A patch matching `x.Name` would rewrite every
+type's `Name`; a patch cannot delete a declaration at all, because its
+replacement section may not be empty; it cannot create one, because it would
+have nothing to match; a receiver and a parameter list in one change need two
+elisions, which cross-connect; and a whole function body is not something a
+minus section can match.
+
+These resolve the target with `go/types` and rewrite the source with
+[dave/dst], so they change exactly the references that mean the same symbol:
+
+```shell
+$ gopatch rename field User.Name Title -d ./...
+```
+
+renames the declaration, every `u.Name` on a `User`, and every `User{Name: ...}`
+key, in every package of the module — and leaves another type's `Name` alone.
+
+In exchange they need the module to compile. If it does not, they report the
+build errors and change nothing. A few more consequences:
+
+-   The whole module is loaded, whatever paths you give, because a reference can
+    live in any package. The paths bound what may be *written*: if the change
+    reaches a file they do not cover, the command says so and writes nothing,
+    rather than applying half a rename.
+-   `rename method` moves the interface methods a type is required to have, and
+    their other implementations, along with the method. If one of them is
+    outside the module — `fmt.Stringer`, say — the rename is refused.
+-   `delete` refuses while anything still refers to the declaration, and lists
+    the positions. An import left with no other user goes with it.
+-   `add struct|func|method` append to a named file. A generated function's body
+    is `panic("not implemented")`, so the file still compiles. A signature that
+    names a package the file does not import yet needs `--import <path>`, or
+    `--import <qualifier>=<path>` to add it under an explicit alias.
+-   `edit method --params/--results` changes the signature and nothing else. Like
+    `edit func`, it updates neither call sites nor bodies, so adding a result
+    leaves the method without a return statement for you to write — which is
+    what `--content` is for, in a second run.
+-   `--print-patch` and `--skip-import-processing` are not accepted, because
+    there is no patch and the engine owns the import block.
+
+  [dave/dst]: https://github.com/dave/dst
+
+### Replacing a body
+
+`--content` on `edit func` and `edit method` replaces a function's whole body.
+It takes Go statements — not a whole function, and not the braces — or
+`@<path>` to read them from a file:
+
+```shell
+$ gopatch edit method Client.Do --content 'return c.transport.RoundTrip(r)' ./...
+$ gopatch edit func  Send       --content @hack/send.go --import log/slog ./...
+$ gopatch edit func  Send       --content '' ./...
+```
+
+`gopatch replace` changes part of a body instead, by regular expression:
+
+```shell
+$ gopatch replace func Send --match 'log\.Printf\((.*)\)' --content 'slog.Info($1)' --import log/slog ./...
+```
+
+This is the escape hatch for a change no pattern over the syntax tree expresses
+well — a log call's arguments, a string literal, a comment. It is a textual
+substitution, but a scoped one: the body is located with type information, so
+the expression cannot reach another function, another type's same-named method,
+or another package's same-named declaration. The pattern sees the body's source
+as written, comments included, between the braces and not including them; it
+spans the whole body, so `^` and `$` anchor the body rather than a line unless
+you write `(?m)`.
+
+Three things are refused rather than guessed at:
+
+-   A pattern that **matches nothing** is an error. Exiting 0 having changed
+    nothing is what a mistyped expression looks like otherwise.
+-   Content that **is not valid Go** is rejected before anything is written, and
+    the message shows what the substitution produced.
+-   `--content` cannot be combined with `--params`/`--results`. On `edit func`
+    they are different engines; on `edit method` they are the same engine but
+    still separate runs, because the body you write has to be the one the new
+    signature needs, and you cannot see it until the signature has changed.
+
+Neither is type-checked, though — only parsed. A body that refers to a name that
+is not in scope, or that names a package you did not pass `--import` for, is
+written out and fails at build time. A qualifier is only resolved to an import
+when the file already imports it or `--import` says so, because nothing in a
+reparsed body distinguishes a package reference from `c.Host`.
 
 ## Options
 
