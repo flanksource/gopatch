@@ -43,8 +43,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `make install` builds from a checkout into `$GOBIN` (or `$GOPATH/bin`) with the
   version stamped from `git describe`, so a locally built gopatch reports the
   commit it came from instead of `unknown`.
+- `gopatch patch`, which applies patch files. This is what the root command has
+  always done; it now has a name, its own `--help`, and its own examples, so the
+  root command can be a dispatcher rather than one command wearing two hats.
+- `gopatch install`, which writes the agent skills that ship inside the binary
+  into the skills directory of every AI coding agent it finds — `~/.agents`,
+  Claude Code, Codex, Cursor, Gemini and opencode — or into `--agent`/`--dir`.
+  The skill tree is embedded, so this works from a `go install` build with no
+  checkout and no network. Re-running reports files as `unchanged`, and a skill
+  directory that is a symlink to a checkout is left alone rather than written
+  through. `--list` shows what the binary carries and which agents are here;
+  `--dry-run` reports without writing.
+
+- Help topics carrying the reference documentation inside the binary:
+  `gopatch help patches` (the patch language, from `docs/PatchesInDepth.md`),
+  `gopatch help metavariables` (identifiers vs expressions vs statements, from
+  `docs/Appendix.md`) and `gopatch help examples` (the five patches in
+  `examples/`, each of which the test suite runs). Previously `gopatch patch
+  --help` pointed at a path in the repository, which a `go install` build does
+  not have.
 
 ### Changed
+- `gopatch patch --help` now explains the patch language — context lines,
+  metavariable repetition, elision and the two elision limits — instead of
+  naming a file. Nothing in the help text refers to a path outside the binary,
+  and a test walks the command tree to keep it that way.
+- `--diff` and `--print-only` now say that they print each matching patch's
+  description comment.
+- The three HTML tables in `docs/PatchesInDepth.md` are now plain two-column
+  code blocks, the idiom the document already used elsewhere. They render the
+  same on GitHub and are legible when the document is printed to a terminal.
 - The command line is now parsed by `spf13/cobra`. Every existing flag, and
   applying patch files with `-p`/`-P` or on stdin, behaves as before.
 - `--help` now writes to stdout and exits 0. It previously wrote to stderr and
@@ -54,6 +82,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - gopatch now requires Go 1.23. The type-aware commands need
   `golang.org/x/tools/go/packages`, whose older releases no longer build on
   current Go toolchains.
+
+### Deprecated
+- Applying patches from the root command — `gopatch -p rules.patch ./...` — is
+  deprecated in favour of `gopatch patch -p rules.patch ./...`. The old spelling
+  still works and still writes the same output on stdout; it additionally prints
+  a warning on stderr, so a pipeline that reads `--diff` or `--print-only` is
+  unaffected. It will be removed in v0.6.0.
 
 ## 0.4.0 - 2024-04-03
 ### Added

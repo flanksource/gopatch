@@ -120,7 +120,10 @@ func runIntegrationTest(t *testing.T, testFile string) {
 				return dir, nil
 			},
 		}
-		err = cmd.Run(append(extraArgs, args...))
+		// Through the "patch" subcommand rather than the root: the root spelling
+		// is deprecated and writes a warning to stderr, which these tests compare
+		// against the archive's .diff.stderr member.
+		err = cmd.Run(append([]string{"patch"}, append(extraArgs, args...)...))
 		return stdoutbuf.String(), stderrbuf.String(), err
 	}
 
@@ -209,7 +212,7 @@ func TestGeneratedE2e(t *testing.T) {
 				Stdout: &stdoutbuf,
 				Getwd:  os.Getwd,
 			}
-			err = cmd.Run([]string{"--skip-generated", "-p", patch, tt.path})
+			err = cmd.Run([]string{"patch", "--skip-generated", "-p", patch, tt.path})
 			require.NoError(t, err, "could not run patch")
 			assert.Empty(t, stdoutbuf)
 			// verify the target file's content didn't modify.
