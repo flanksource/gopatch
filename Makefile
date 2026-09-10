@@ -1,5 +1,17 @@
 BIN = bin
 
+# The environment's GOBIN, captured with ":=" before the export below redirects
+# GOBIN at ./bin. That redirect exists so the lint tools stay out of the user's
+# path, and "make install" must not inherit it.
+ENV_GOBIN := $(GOBIN)
+GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown)
+
+# Where "make install" puts gopatch, and what version it reports. goreleaser
+# injects the tag it is building; a local install describes the checkout, so an
+# installed dev build does not claim to be "unknown".
+INSTALL_BIN ?= $(if $(ENV_GOBIN),$(ENV_GOBIN),$(shell go env GOPATH)/bin)
+VERSION ?= $(GIT_VERSION)
+
 export GO111MODULE=on
 export GOBIN ?= $(shell pwd)/$(BIN)
 
@@ -18,6 +30,11 @@ all: build lint test
 .PHONY: build
 build:
 	go build ./...
+
+.PHONY: install
+install:
+	GOBIN=$(INSTALL_BIN) go install -ldflags '-X main._version=$(VERSION)' .
+	@echo "installed $(INSTALL_BIN)/gopatch ($(VERSION))"
 
 .PHONY: test
 test:

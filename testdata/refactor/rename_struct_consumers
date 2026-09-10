@@ -1,0 +1,61 @@
+Renames a struct in its declaring package and in a package that imports it.
+
+The generated program has two changes: one scoped to the package clause, one
+scoped to files importing the path. This is the examples/destutter.patch idiom.
+
+-- args --
+rename struct HTTPClient Client --package http --import example.com/http
+
+-- want.patch --
+# rename struct HTTPClient -> Client in package http and in consumers of example.com/http
+@@
+@@
+ package http
+
+-HTTPClient
++Client
+
+# rename struct HTTPClient -> Client in package http and in consumers of example.com/http
+@@
+var http identifier
+@@
+ import http "example.com/http"
+
+-http.HTTPClient
++http.Client
+
+-- client.in.go --
+package http
+
+type HTTPClient struct{}
+
+func New() *HTTPClient {
+	return &HTTPClient{}
+}
+
+-- client.out.go --
+package http
+
+type Client struct{}
+
+func New() *Client {
+	return &Client{}
+}
+
+-- consumer.in.go --
+package app
+
+import "example.com/http"
+
+func run(c *http.HTTPClient) *http.HTTPClient {
+	return c
+}
+
+-- consumer.out.go --
+package app
+
+import "example.com/http"
+
+func run(c *http.Client) *http.Client {
+	return c
+}

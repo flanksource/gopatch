@@ -2,6 +2,10 @@ This directory contains end-to-end integration tests for gopatch. Each test is
 specified as a [txtar] file. This is the same format used by Go Playground to
 support multiple files.
 
+Tests for the refactoring subcommands, which generate a patch from command line
+arguments rather than reading one, live in [refactor/](refactor) and have their
+own archive format.
+
   [txtar]: https://godoc.org/github.com/rogpeppe/go-internal/txtar
 
 Tests contain a one or more patch files which are executed upon one or more Go

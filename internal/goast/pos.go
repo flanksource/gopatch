@@ -18,6 +18,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// ast.Object is deprecated because it cannot be computed correctly without type
+// information, which gopatch deliberately does without. go/parser still fills in
+// Ident.Obj, and the object graph is a cycle, so the position walker has to
+// recognize it to avoid recursing forever.
+//lint:file-ignore SA1019 see the note above
+
 package goast
 
 import (

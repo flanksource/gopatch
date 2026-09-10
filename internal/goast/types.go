@@ -18,6 +18,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// ast.Object and ast.Scope are deprecated because they cannot be computed
+// correctly without type information — which is the premise gopatch is built
+// on, not a mistake it can correct. go/parser still fills in Ident.Obj, so this
+// reflection-driven walker has to know the shape of those nodes to traverse the
+// trees it is handed.
+//lint:file-ignore SA1019 see the note above
+
 package goast
 
 import (
@@ -49,17 +56,17 @@ var (
 	ScopeType        = reflect.TypeOf(ast.Scope{})
 
 	// Struct Pointers
-	CommentGroupPtrType = reflect.PtrTo(CommentGroupType)
-	FieldListPtrType    = reflect.PtrTo(FieldListType)
-	FieldPtrType        = reflect.PtrTo(FieldType)
-	FilePtrType         = reflect.PtrTo(FileType)
-	ForStmtPtrType      = reflect.PtrTo(ForStmtType)
-	FuncDeclPtrType     = reflect.PtrTo(FuncDeclType)
-	GenDeclPtrType      = reflect.PtrTo(GenDeclType)
-	IdentPtrType        = reflect.PtrTo(IdentType)
-	ObjectPtrType       = reflect.PtrTo(ObjectType)
-	RangeStmtPtrType    = reflect.PtrTo(RangeStmtType)
-	ScopePtrType        = reflect.PtrTo(ScopeType)
+	CommentGroupPtrType = reflect.PointerTo(CommentGroupType)
+	FieldListPtrType    = reflect.PointerTo(FieldListType)
+	FieldPtrType        = reflect.PointerTo(FieldType)
+	FilePtrType         = reflect.PointerTo(FileType)
+	ForStmtPtrType      = reflect.PointerTo(ForStmtType)
+	FuncDeclPtrType     = reflect.PointerTo(FuncDeclType)
+	GenDeclPtrType      = reflect.PointerTo(GenDeclType)
+	IdentPtrType        = reflect.PointerTo(IdentType)
+	ObjectPtrType       = reflect.PointerTo(ObjectType)
+	RangeStmtPtrType    = reflect.PointerTo(RangeStmtType)
+	ScopePtrType        = reflect.PointerTo(ScopeType)
 
 	// Interfaces
 	ExprType = reflect.TypeOf((*ast.Expr)(nil)).Elem()
