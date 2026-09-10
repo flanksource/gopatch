@@ -1,0 +1,38 @@
+{
+  "name": "gopatch-skills",
+  "version": "0.1.0",
+  "description": "Mechanical Go refactoring with gopatch — renames, signature changes, call-site sweeps and declaration deletes over the syntax tree instead of sed, perl or awk.",
+  "author": {
+    "name": "Flanksource",
+    "url": "https://github.com/flanksource"
+  },
+  "homepage": "https://github.com/flanksource/gopatch",
+  "repository": "https://github.com/flanksource/gopatch",
+  "license": "MIT",
+  "keywords": [
+    "go",
+    "golang",
+    "gopatch",
+    "refactor",
+    "rename",
+    "codemod",
+    "sed",
+    "ast",
+    "migration"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "gopatch",
+    "shortDescription": "Refactor Go code over the syntax tree",
+    "longDescription": "Rewrite Go source across many files with gopatch rather than sed, perl or awk: rename types, functions, fields, methods, imports and packages; change signatures; add or delete struct fields; delete declarations that nothing references; and apply patch files that match Go syntax. Includes a cookbook built from real in-place text edits and the gopatch command that replaces each one.",
+    "developerName": "Flanksource",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/flanksource/gopatch",
+    "defaultPrompt": [
+      "Rename the TemplateID field on Finding to CheckID across the module",
+      "Drop the mode argument from every getInstance call site",
+      "Delete the unusedHelper function and everything that refers to it"
+    ]
+  }
+}
