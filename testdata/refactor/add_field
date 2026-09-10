@@ -1,0 +1,35 @@
+Adds a field to a struct, after the existing ones.
+
+There is no testdata archive anywhere else that adds a struct field, so this is
+what proves the operation works at all.
+
+-- args --
+add field User.Nickname string --tag 'json:"nickname"'
+
+-- want.patch --
+# add field User.Nickname string as the last field
+@@
+@@
+ package thing
+
+ type User struct {
+   ...
++  Nickname string `json:"nickname"`
+ }
+
+-- user.in.go --
+package thing
+
+type User struct {
+	ID   string `json:"id"`
+	Name string
+}
+
+-- user.out.go --
+package thing
+
+type User struct {
+	ID       string `json:"id"`
+	Name     string
+	Nickname string `json:"nickname"`
+}

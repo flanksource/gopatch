@@ -1,0 +1,81 @@
+Replaces a method's whole body with --content.
+
+Only the named method changes: Other.Send keeps its body, and so does the
+top-level Deliver. That scoping is the reason this is not a text edit.
+
+The import block follows the result — errors was used only by the body that was
+replaced, so it goes with it, while log survives because the other two callers
+remain. The block collapses to one line with it, which is what gofmt does to a
+parenthesized import of one path.
+
+-- args --
+edit method Client.Send --content 'return nil'
+
+-- go.mod --
+module example.com/content
+
+go 1.22
+
+-- send/send.in.go --
+package send
+
+import (
+	"errors"
+	"log"
+)
+
+// Client sends things.
+type Client struct {
+	Host string
+}
+
+// Send logs and fails.
+func (c *Client) Send(id string) error {
+	log.Printf("sending %v to %v", id, c.Host)
+	return errors.New("not implemented")
+}
+
+// Other has a method of the same name.
+type Other struct{}
+
+// Send does nothing.
+func (o Other) Send(id string) error {
+	log.Printf("sending %v", id)
+	return nil
+}
+
+// Deliver is a function, not a method.
+func Deliver(id string) error {
+	log.Printf("delivering %v", id)
+	return nil
+}
+
+-- send/send.out.go --
+package send
+
+import "log"
+
+// Client sends things.
+type Client struct {
+	Host string
+}
+
+// Send logs and fails.
+func (c *Client) Send(id string) error {
+	return nil
+}
+
+// Other has a method of the same name.
+type Other struct{}
+
+// Send does nothing.
+func (o Other) Send(id string) error {
+	log.Printf("sending %v", id)
+	return nil
+}
+
+// Deliver is a function, not a method.
+func Deliver(id string) error {
+	log.Printf("delivering %v", id)
+	return nil
+}

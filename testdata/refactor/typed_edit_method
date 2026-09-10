@@ -1,0 +1,44 @@
+Changes a method's signature, keeping the half not given.
+
+A patch cannot do this: a receiver and a parameter list in one change each need
+their own elision, and two "..." in a signature cross-connect. Only --params is
+given here, so the result list survives. The doc comment stays attached, and
+"context" is added because the new parameter refers to it.
+
+Call sites are not updated, which is why the caller below still passes nothing.
+
+-- args --
+edit method Queue.Wait --params "ctx context.Context" --import context
+
+-- go.mod --
+module example.com/typededit
+
+go 1.22
+
+-- app/app.in.go --
+package app
+
+// Queue holds work.
+type Queue struct {
+	Depth int
+}
+
+// Wait blocks until the queue drains.
+func (q *Queue) Wait() error {
+	return nil
+}
+
+-- app/app.out.go --
+package app
+
+import "context"
+
+// Queue holds work.
+type Queue struct {
+	Depth int
+}
+
+// Wait blocks until the queue drains.
+func (q *Queue) Wait(ctx context.Context) error {
+	return nil
+}

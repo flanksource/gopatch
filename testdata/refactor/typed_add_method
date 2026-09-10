@@ -1,0 +1,38 @@
+Appends a method stub, and creates the import block its signature needs.
+
+Adding a declaration is the other thing the patch language cannot express: a
+patch has to match something, and a new declaration matches nothing. This also
+covers the case that defeats the patch engine's `add param --import` — the file
+has no imports at all, so the block has to be created rather than extended.
+
+-- args --
+add method Queue.Wait app/app.go --params "ctx context.Context" --results error --import context
+
+-- patterns --
+
+-- go.mod --
+module example.com/typedadd
+
+go 1.22
+
+-- app/app.in.go --
+package app
+
+// Queue holds work.
+type Queue struct {
+	Depth int
+}
+
+-- app/app.out.go --
+package app
+
+import "context"
+
+// Queue holds work.
+type Queue struct {
+	Depth int
+}
+
+func (r *Queue) Wait(ctx context.Context) error {
+	panic("not implemented")
+}

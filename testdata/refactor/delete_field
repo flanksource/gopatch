@@ -1,0 +1,70 @@
+Deletes a struct field, including its key in composite literals.
+
+The field is tagged, so the generated patch has to reproduce the tag: a struct
+tag cannot be matched by a wildcard, and omitting it would match nothing.
+
+Note the blank line left behind where the field was, in both the declaration
+and the literal. That is a known formatting wart of the engine, shared with
+testdata/delete_field, and is pinned here so a future improvement shows up as a
+failing test rather than going unnoticed.
+
+-- args --
+delete field User.Legacy
+
+-- want.patch --
+# delete field User.Legacy and drop it from User literals
+@@
+@@
+ package thing
+
+ type User struct {
+   ...
+-  Legacy string `json:"legacy"`
+   ...
+ }
+
+# delete field User.Legacy and drop it from User literals
+@@
+var v expression
+@@
+ package thing
+
+ User{
+   ...,
+-  Legacy: v,
+   ...,
+ }
+
+-- user.in.go --
+package thing
+
+type User struct {
+	Name   string
+	Legacy string `json:"legacy"`
+	Email  string
+}
+
+func New() User {
+	return User{
+		Name:   "a",
+		Legacy: "b",
+		Email:  "c",
+	}
+}
+
+-- user.out.go --
+package thing
+
+type User struct {
+	Name string
+
+	Email string
+}
+
+func New() User {
+	return User{
+		Name: "a",
+
+		Email: "c",
+	}
+}

@@ -1,0 +1,107 @@
+Renames a struct field with the type-aware engine.
+
+This is the operation the patch language cannot express. A patch matching
+"x.Name" would also rewrite Other.Name and the local variable's field in the
+importing package; here neither moves, and the two files that do change are
+found without being named as the declaring package.
+
+The presence of go.mod is what makes this a module, which the type-aware
+commands require.
+
+-- args --
+rename field User.Name Title
+
+-- go.mod --
+module example.com/typedfield
+
+go 1.22
+
+-- user/user.in.go --
+package user
+
+// User is a person.
+type User struct {
+	Name string `json:"name"`
+	Age  int
+}
+
+// Other happens to have a field of the same name.
+type Other struct {
+	Name string
+}
+
+func (u *User) Greet() string {
+	return "hello " + u.Name
+}
+
+func New(name string) *User {
+	return &User{Name: name}
+}
+
+func describe(o Other) string {
+	return o.Name
+}
+
+-- user/user.out.go --
+package user
+
+// User is a person.
+type User struct {
+	Title string `json:"name"`
+	Age   int
+}
+
+// Other happens to have a field of the same name.
+type Other struct {
+	Name string
+}
+
+func (u *User) Greet() string {
+	return "hello " + u.Title
+}
+
+func New(name string) *User {
+	return &User{Title: name}
+}
+
+func describe(o Other) string {
+	return o.Name
+}
+
+-- app/app.in.go --
+package app
+
+import "example.com/typedfield/user"
+
+type local struct {
+	Name string
+}
+
+func Describe(u *user.User) string {
+	return u.Name
+}
+
+func Build() *user.User {
+	return &user.User{Name: "ann", Age: 3}
+}
+
+func (l local) get() string { return l.Name }
+
+-- app/app.out.go --
+package app
+
+import "example.com/typedfield/user"
+
+type local struct {
+	Name string
+}
+
+func Describe(u *user.User) string {
+	return u.Title
+}
+
+func Build() *user.User {
+	return &user.User{Title: "ann", Age: 3}
+}
+
+func (l local) get() string { return l.Name }
