@@ -16,6 +16,7 @@ refactoring and restyling.
     - [Commands that generate a patch](#commands-that-generate-a-patch)
     - [Commands that use type information](#commands-that-use-type-information)
   - [Options](#options)
+  - [Agent skills](#agent-skills)
 - [Patches](#patches)
   - [Metavariables](#metavariables)
   - [Statements](#statements)
@@ -127,11 +128,11 @@ return fmt.Errorf("invalid port: %v", err)
   $ cd ~/go/src/example.com/myproject
   ```
 
-  Run `gopatch` on the project, supplying the previously written patch with the
-  `-p` flag.
+  Run `gopatch patch` on the project, supplying the previously written patch
+  with the `-p` flag.
 
   ```shell
-  $ gopatch -p ~/s1028.patch ./...
+  $ gopatch patch -p ~/s1028.patch ./...
   ```
 
   This will apply the patch on all Go code in your project.
@@ -144,11 +145,11 @@ return fmt.Errorf("invalid port: %v", err)
   $ cd ~/go/src/example.com/myproject
   ```
 
-  Run `gopatch` on the project, supplying the previously written patch with the
-  `-p` flag along with '-d' flag.
+  Run `gopatch patch` on the project, supplying the previously written patch
+  with the `-p` flag along with '-d' flag.
 
   ```shell
-  $ gopatch -d -p ~/s1028.patch ./...
+  $ gopatch patch -d -p ~/s1028.patch ./...
   ```
 
   This will turn on diff mode and will write the diff to stdout instead of modifying all
@@ -158,7 +159,7 @@ return fmt.Errorf("invalid port: %v", err)
   
   For example if we applied patch ~/s1028 to our testfile error.go
   ```shell
-  $ gopatch -d -p ~/s1028.patch ./testdata/test_files/diff_example/
+  $ gopatch patch -d -p ~/s1028.patch ./testdata/test_files/diff_example/
   ```
   Output would be : 
   ```
@@ -192,10 +193,10 @@ To experiment with other sample patches, check out the [Examples] section.
 
 # Usage
 
-To use the gopatch command line tool, provide the following arguments.
+To apply a patch file, provide the following arguments.
 
 ```
-gopatch [options] pattern ...
+gopatch patch [options] pattern ...
 ```
 
 Where pattern specifies one or more Go files, or directories containing Go
@@ -205,12 +206,30 @@ considered by gopatch.
 Flags and patterns may be given in any order, and `gopatch -- <path>` forces a
 path to be treated as a path even when it shares a name with a subcommand.
 
+> **Deprecated:** patches may still be applied by the root command, as
+> `gopatch [options] pattern ...`. That spelling now prints a warning to stderr
+> and will be removed in v0.6.0. Use `gopatch patch`. It also resolves a bare
+> `examples` or `patches` argument to the help topic of that name, so a
+> directory called either needs `gopatch -- examples`; `gopatch patch` does not
+> have that problem.
+
+The reference documentation ships inside the binary, so it is available from a
+`go install` build with no checkout:
+
+```shell
+gopatch help patches         # the patch language, in depth
+gopatch help metavariables   # identifiers vs expressions vs statements
+gopatch help examples        # the five patches in examples/, ready to run
+```
+
 ## Commands
 
 For the common mechanical refactorings you do not need to write a patch at all.
 These subcommands take the change as arguments instead.
 
 ```
+gopatch patch          [options]                   [pattern...]
+
 gopatch rename struct  <Old> <New>                 [pattern...]
 gopatch rename type    <Old> <New>                 [pattern...]
 gopatch rename func    <old> <new>                 [pattern...]
@@ -239,6 +258,8 @@ gopatch edit   method  <Recv>.<method>             --content '...' | --content @
 
 gopatch replace func   <name>            --match <re> --content '...'
 gopatch replace method <Recv>.<method>   --match <re> --content '...'
+
+gopatch install        [skill...]        [--agent <id>] [--dir <path>]
 ```
 
 They are served by two engines, and each command's `--help` says which one it
@@ -412,7 +433,9 @@ reparsed body distinguishes a package reference from `c.Host`.
 
 ## Options
 
-gopatch supports the following command line options.
+Every flag is documented in the binary — `gopatch patch --help`, and
+`--help` on any subcommand — so what follows is the same text with worked
+examples, not a second source of truth.
 
 - `-p file`, `--patch=file`
 
@@ -422,13 +445,13 @@ gopatch supports the following command line options.
     Provide this flag multiple times to apply multiple patches in-order.
 
     ```shell
-    $ gopatch -p foo.patch -p bar.patch path/to/my/project
+    $ gopatch patch -p foo.patch -p bar.patch path/to/my/project
     ```
 
     If this flag is omitted, a patch is expected on stdin.
 
     ```shell
-    $ gopatch path/to/my/project << EOF
+    $ gopatch patch path/to/my/project << EOF
     @@
     @@
     -foo
@@ -444,7 +467,7 @@ gopatch supports the following command line options.
     Only need to apply the flag once to turn on diff mode
 
     ```shell
-    $ gopatch -d -p foo.patch -p bar.patch path/to/my/project
+    $ gopatch patch -d -p foo.patch -p bar.patch path/to/my/project
     ```
 
     If this flag is omitted, normal patching occurs which modifies the
@@ -455,14 +478,14 @@ gopatch supports the following command line options.
   file and display applied patches' description comments to stderr if they exist.
   
     ```shell
-    $ gopatch --print-only -p foo.patch -p bar.patch path/to/my/project
+    $ gopatch patch --print-only -p foo.patch -p bar.patch path/to/my/project
     ```  
 - `--skip-import-processing`
   
   Flag to turn on skip-import-processing mode. Provide this flag to disable
   import formatting for imports that were not part of the patch changes.
     ```shell
-    $ gopatch --skip-import-processing -p foo.patch -p bar.patch path/to/my/project
+    $ gopatch patch --skip-import-processing -p foo.patch -p bar.patch path/to/my/project
     ```
 
 - `--skip-generated`
@@ -472,15 +495,46 @@ gopatch supports the following command line options.
   has `@generated` or `^// Code generated .* DO NOT EDIT\.$` in the comment
   header.
     ```shell
-    $ gopatch --skip-generated -p foo.patch -p bar.patch path/to/my/project
+    $ gopatch patch --skip-generated -p foo.patch -p bar.patch path/to/my/project
     ```
+
+## Agent skills
+
+gopatch ships with a skill for AI coding agents that teaches them to reach for
+it instead of `sed -i` when they have to change Go code in more than one place.
+The files are embedded in the binary, so this needs no checkout and no network.
+
+```shell
+$ gopatch install
+gopatch: 4 created  ~/.claude/skills/gopatch
+gopatch: 4 created  ~/.codex/skills/gopatch
+```
+
+With no arguments it installs every skill into every agent it finds a
+configuration directory for — `agents` (the client-agnostic `~/.agents/skills`
+convention), `claude`, `codex`, `cursor`, `gemini` and `opencode`. Re-running is
+safe: files that already match are reported as `unchanged`, and a skill
+directory that is a symlink to a checkout is left alone rather than written
+through.
+
+```shell
+$ gopatch install --list            # what this binary carries, and what is here
+$ gopatch install --dry-run         # report without writing
+$ gopatch install --agent claude    # one agent, detected or not
+$ gopatch install --dir ./.agents/skills   # a directory of your choosing
+```
+
+The skill source lives in [`.agents/skills`](.agents/skills), and the same
+directory is published as a plugin for the Claude Code and Codex marketplaces —
+see [`.agents/README.md`](.agents/README.md).
 
 # Patches
 
 Patch files are the input to gopatch that specify how to transform code. Each
 patch file contains one or more patches. This section provides an introduction
 to writing patches; look at [Patches in depth] for a more detailed
-explanation.
+explanation, or run `gopatch help patches`, which prints the same document from
+inside the binary.
 
 Each patch specifies a code transformation. These are formatted like unified
 diffs: lines prefixed with `-` specify matching code should be deleted, and
@@ -830,7 +884,7 @@ When diff mode is turned on by the `-d`/`--diff` flag, gopatch will print
 description comments for patches that matched different files to stderr.
 
 ```shell
-$ gopatch -d -p ~/s1028.patch testdata/test_files/diff_example/error.go
+$ gopatch patch -d -p ~/s1028.patch testdata/test_files/diff_example/error.go
 error.go:Replace redundant fmt.Sprintf with fmt.Errorf
 --- error.go
 +++ error.go
@@ -852,6 +906,9 @@ Other comments will be ignored.
 
 This section lists various example patches you can try in your code.
 Note that some of these patches are not perfect and may have false positives.
+
+All five ship inside the binary: `gopatch help examples` prints them with a
+description of what each one demonstrates.
 
 - [s1012.patch](examples/s1012.patch): Fix for staticcheck [S1012](https://staticcheck.io/docs/checks#S1012).
 - [s1028.patch](examples/s1028.patch): Fix for staticcheck [S1028](https://staticcheck.io/docs/checks#S1028).

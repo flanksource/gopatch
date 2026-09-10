@@ -1,9 +1,7 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"go/token"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -28,9 +26,11 @@ const (
 	_patchesFileDesc = "File containing a list of paths to patch files. " +
 		"Each file must be listed on its own line."
 
-	_diffDesc = "Print a diff of the proposed changes to stdout but don't modify any files."
+	_diffDesc = "Print a diff of the proposed changes to stdout but don't modify any files. " +
+		"The description comment of each patch that matched is printed above its diff."
 
-	_printOnlyDesc = "Print files to stdout without modifying them."
+	_printOnlyDesc = "Print files to stdout without modifying them. " +
+		"The description comment of each patch that matched is printed with them."
 
 	_skipImportProcessingDesc = "Skips processing of imports."
 
@@ -136,22 +136,27 @@ func (cmd *mainCmd) newRootCommand() (*cobra.Command, *options) {
 	root := &cobra.Command{
 		Use:   "gopatch [options] <pattern>...",
 		Short: "Apply patch files to Go source code.",
-		Long: "gopatch applies patch files to Go source code.\n\n" + _patternDesc +
-			"\n\nFor the common mechanical refactorings you do not need a patch file: " +
-			"see `gopatch rename --help`, `add`, `delete`, `edit` and `replace`.",
+		Long: "gopatch matches and transforms Go code.\n\n" +
+			"`gopatch patch` applies a patch file. The other commands take the change " +
+			"as arguments instead, so the common mechanical refactorings need no patch " +
+			"at all: see `gopatch rename --help`, `add`, `delete`, `edit` and " +
+			"`replace`. `gopatch install` writes the agent skills this binary carries.\n\n" +
+			"Patches may still be applied by the root command, but that is deprecated " +
+			"and will be removed in " + _rootPatchRemovalVersion + "; use `gopatch patch`.\n\n" +
+			_patternDesc,
 		Example: examples(
 			"# apply a patch file to every Go file under the current directory",
-			"gopatch -p rules.patch ./...",
-			"",
-			"# read the patch from stdin",
-			"gopatch ./... < rules.patch",
+			"gopatch patch -p rules.patch ./...",
 			"",
 			"# show what would change without writing anything",
-			"gopatch -d -p rules.patch ./...",
+			"gopatch patch -d -p rules.patch ./...",
 			"",
 			"# refactor without writing a patch at all",
 			"gopatch rename struct HTTPClient Client ./...",
 			"gopatch rename field  User.Name   Title  ./...",
+			"",
+			"# teach your AI coding agents to use it",
+			"gopatch install",
 		),
 
 		// Without this, cobra's default validator rejects the first
@@ -192,14 +197,16 @@ func (cmd *mainCmd) newRootCommand() (*cobra.Command, *options) {
 
 // subcommands returns the root command's children.
 func (cmd *mainCmd) subcommands() []*cobra.Command {
-	return []*cobra.Command{
+	return append([]*cobra.Command{
+		cmd.newPatchCommand(),
 		cmd.newRenameCommand(),
 		cmd.newAddCommand(),
 		cmd.newDeleteCommand(),
 		cmd.newEditCommand(),
 		cmd.newReplaceCommand(),
+		cmd.newInstallCommand(),
 		cmd.newVersionCommand(),
-	}
+	}, cmd.newDocTopics()...)
 }
 
 func (cmd *mainCmd) newVersionCommand() *cobra.Command {
@@ -214,25 +221,16 @@ func (cmd *mainCmd) newVersionCommand() *cobra.Command {
 	}
 }
 
-// runRoot applies the patches named by the command line options.
+// runRoot is the deprecated spelling of `gopatch patch`.
+//
+// It still applies patches, because every existing invocation, script and CI
+// job spells it this way, but it says on stderr where the command has moved.
+// The warning is skipped when there are no patterns: that is a user asking for
+// help, not one using the old form.
 func (cmd *mainCmd) runRoot(c *cobra.Command, opts *options, patterns []string) error {
-	if len(patterns) == 0 {
-		fmt.Fprint(c.ErrOrStderr(), c.UsageString())
-		fmt.Fprintln(c.ErrOrStderr())
-
-		return errors.New("please provide at least one pattern")
+	if len(patterns) > 0 {
+		warnRootPatchDeprecated(c.ErrOrStderr())
 	}
 
-	fset := token.NewFileSet()
-	progs, err := loadPatches(fset, opts, cmd.Stdin)
-	if err != nil {
-		return err
-	}
-
-	return cmd.runApply(applyRequest{
-		FileSet:  fset,
-		Applier:  newPatchRunner(fset, progs),
-		Patterns: patterns,
-		Options:  opts,
-	})
+	return cmd.runPatch(c, opts, patterns)
 }

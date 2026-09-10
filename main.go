@@ -64,14 +64,20 @@ type mainCmd struct {
 	Stderr io.Writer
 
 	Getwd func() (string, error) // == os.Getwd
+
+	// UserHomeDir locates the directory that holds the per-user agent
+	// configuration `gopatch install` writes into. It is a field so that the
+	// installer's tests never touch the real ~/.claude or ~/.codex.
+	UserHomeDir func() (string, error) // == os.UserHomeDir
 }
 
 func runMain() (exitCode int) {
 	cmd := mainCmd{
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-		Getwd:  os.Getwd,
+		Stdin:       os.Stdin,
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
+		Getwd:       os.Getwd,
+		UserHomeDir: os.UserHomeDir,
 	}
 	if err := cmd.Run(os.Args[1:]); err != nil {
 		fmt.Fprintln(cmd.Stderr, err)
@@ -94,6 +100,9 @@ func (cmd *mainCmd) normalize() {
 	}
 	if cmd.Getwd == nil {
 		cmd.Getwd = os.Getwd
+	}
+	if cmd.UserHomeDir == nil {
+		cmd.UserHomeDir = os.UserHomeDir
 	}
 }
 
