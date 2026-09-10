@@ -1,0 +1,71 @@
+Rewrites a call inside one method's body, keeping its arguments.
+
+The pattern is applied to the body's source as written, so the capture group
+carries the arguments across and the comment inside the body survives — neither
+would happen if the body were re-rendered from syntax first.
+
+Other.Send makes the same call and is not touched. That is what the type-aware
+resolution buys: a "sed" over this file would rewrite both.
+
+-- args --
+replace method Client.Send --match 'log\.Printf\((.*)\)' --content 'slog.Info($1)' --import log/slog
+
+-- go.mod --
+module example.com/substitute
+
+go 1.22
+
+-- send/send.in.go --
+package send
+
+import "log"
+
+// Client sends things.
+type Client struct {
+	Host string
+}
+
+// Send logs.
+func (c *Client) Send(id string) error {
+	log.Printf("sending %v to %v", id, c.Host)
+	// TODO: retry
+	return nil
+}
+
+// Other has a method of the same name, making the same call.
+type Other struct{}
+
+// Send logs too.
+func (o Other) Send(id string) error {
+	log.Printf("sending %v", id)
+	return nil
+}
+
+-- send/send.out.go --
+package send
+
+import (
+	"log"
+	"log/slog"
+)
+
+// Client sends things.
+type Client struct {
+	Host string
+}
+
+// Send logs.
+func (c *Client) Send(id string) error {
+	slog.Info("sending %v to %v", id, c.Host)
+	// TODO: retry
+	return nil
+}
+
+// Other has a method of the same name, making the same call.
+type Other struct{}
+
+// Send logs too.
+func (o Other) Send(id string) error {
+	log.Printf("sending %v", id)
+	return nil
+}

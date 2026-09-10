@@ -1,0 +1,38 @@
+Retypes a tagged struct field.
+
+The field's current type and tag are read from the source and reproduced in the
+patch. Omitting the tag would produce a patch that matches nothing, silently.
+
+-- args --
+edit field User.ID --type UUID
+
+-- want.patch --
+# change the type of field User.ID to UUID
+@@
+@@
+ package thing
+
+ type User struct {
+   ...
+-  ID string `json:"id"`
++  ID UUID `json:"id"`
+   ...
+ }
+
+-- user.in.go --
+package thing
+
+type User struct {
+	Name string
+	ID   string `json:"id"`
+	Age  int
+}
+
+-- user.out.go --
+package thing
+
+type User struct {
+	Name string
+	ID   UUID `json:"id"`
+	Age  int
+}

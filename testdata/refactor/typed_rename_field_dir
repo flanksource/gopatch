@@ -1,0 +1,78 @@
+Renames a field on the User declared under the directory the target names.
+
+Two packages declare User. Naming the directory is often easier than naming the
+package — the file is in front of you, its package clause may not be — so
+"./store:User.Name" scopes the rename the way "--package store" would, and the
+other User keeps its Name.
+
+The consumer in app/ is rewritten even though the target named only ./store:
+the qualifier says which declaration is meant, not which files may change.
+
+-- args --
+rename field ./store:User.Name Title
+
+-- go.mod --
+module example.com/qualified
+
+go 1.22
+
+-- store/user.in.go --
+package store
+
+type User struct {
+	Name string
+	Age  int
+}
+
+func (u *User) Label() string { return u.Name }
+
+-- store/user.out.go --
+package store
+
+type User struct {
+	Title string
+	Age   int
+}
+
+func (u *User) Label() string { return u.Title }
+
+-- api/user.in.go --
+package api
+
+type User struct {
+	Name string
+}
+
+func (u *User) Label() string { return u.Name }
+
+-- app/app.in.go --
+package app
+
+import (
+	"example.com/qualified/api"
+	"example.com/qualified/store"
+)
+
+func Build() *store.User {
+	return &store.User{Name: "ann", Age: 3}
+}
+
+func Other() *api.User {
+	return &api.User{Name: "bob"}
+}
+
+-- app/app.out.go --
+package app
+
+import (
+	"example.com/qualified/api"
+	"example.com/qualified/store"
+)
+
+func Build() *store.User {
+	return &store.User{Title: "ann", Age: 3}
+}
+
+func Other() *api.User {
+	return &api.User{Name: "bob"}
+}

@@ -1,0 +1,27 @@
+Refuses a pattern that matches nothing.
+
+Exiting 0 having changed nothing is the failure this exists to prevent: a
+regular expression is easy to get subtly wrong, and silence looks exactly like
+success. The message quotes the pattern, because that is the thing to fix.
+
+-- args --
+replace func Deliver --match 'fmt\.Println' --content 'x'
+
+-- want.error --
+nothing in the body of func Deliver matches fmt\.Println; nothing was changed
+
+-- go.mod --
+module example.com/nomatch
+
+go 1.22
+
+-- send/send.in.go --
+package send
+
+import "log"
+
+// Deliver logs, but never with fmt.
+func Deliver(id string) error {
+	log.Printf("delivering %v", id)
+	return nil
+}

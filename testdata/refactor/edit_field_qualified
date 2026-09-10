@@ -1,0 +1,45 @@
+Retypes a field on the User the qualifier names, and only that one.
+
+Two packages under these paths declare User with an identically-shaped ID
+field. The package qualifier scopes the rewrite, not just the lookup: without
+the "package store" context line the same change rewrote both, silently.
+
+-- args --
+edit field store.User.ID --type UUID
+
+-- want.patch --
+# change the type of field User.ID to UUID
+@@
+@@
+ package store
+
+ type User struct {
+   ...
+-  ID string
++  ID UUID
+   ...
+ }
+
+-- store/user.in.go --
+package store
+
+type User struct {
+	Name string
+	ID   string
+}
+
+-- store/user.out.go --
+package store
+
+type User struct {
+	Name string
+	ID   UUID
+}
+
+-- api/user.in.go --
+package api
+
+type User struct {
+	Name string
+	ID   string
+}

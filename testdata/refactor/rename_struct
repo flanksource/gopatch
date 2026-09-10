@@ -1,0 +1,46 @@
+Renames a struct and every reference to it in the declaring package.
+
+-- args --
+rename struct HTTPClient Client --package http
+
+-- want.patch --
+# rename struct HTTPClient -> Client in package http (declaring package only; pass --import to update consumers)
+@@
+@@
+ package http
+
+-HTTPClient
++Client
+
+-- client.in.go --
+package http
+
+type HTTPClient struct {
+	timeout int
+}
+
+func New() *HTTPClient {
+	return &HTTPClient{}
+}
+
+func (c *HTTPClient) Timeout() int {
+	return c.timeout
+}
+
+-- client.out.go --
+package http
+
+type Client struct {
+	timeout int
+}
+
+func New() *Client {
+	return &Client{}
+}
+
+func (c *Client) Timeout() int {
+	return c.timeout
+}
+
+-- want.stderr --
+client.go:rename struct HTTPClient -> Client in package http (declaring package only; pass --import to update consumers)

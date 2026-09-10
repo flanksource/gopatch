@@ -1,0 +1,25 @@
+Refuses an unqualified struct that two of the given packages both declare.
+
+The generated change is scoped to one package clause, so there is a real choice
+to make and no way to make it from source alone. Inferring one would retype the
+wrong User; the message names the packages found and the target requalified.
+
+-- args --
+edit field User.ID --type UUID
+
+-- want.error --
+"User" is declared in packages [api store]; qualify field with the one you mean, as in "api.User.ID"
+
+-- store/user.in.go --
+package store
+
+type User struct {
+	ID string
+}
+
+-- api/user.in.go --
+package api
+
+type User struct {
+	ID string
+}

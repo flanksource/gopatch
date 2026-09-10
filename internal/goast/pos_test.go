@@ -18,6 +18,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// These tests build the ast.Object and ast.Scope graphs the walker has to
+// traverse, so they use the same deprecated nodes for the same reason; see the
+// note in pos.go.
+//lint:file-ignore SA1019 see the note above
+
 package goast
 
 import (
