@@ -16,6 +16,7 @@ several files.
 -   `args` holds the command line, without the trailing file patterns. It is
     split the way a shell would, so a flag value containing spaces is quoted
 -   Input files use the ".in.go" suffix and are renamed to ".go" before the run
+-   Files created by a command use the ".new.go" suffix; files expected to be deleted use ".delete.go"
 -   `patterns` overrides the trailing file patterns, which default to every
     `.go` file in the archive. An empty `patterns` appends none, which is what a
     command taking its target file as a positional needs
@@ -29,6 +30,7 @@ several files.
     other modes rather than adding to them
 -   `go.mod` makes the extracted tree a module, which the type-aware commands
     need. It is written out but is not a refactoring target
+-   nested `go.mod` members create separate consumer modules for cross-module typed rename tests
 -   a `.txt` member is written out and is not a refactoring target either. It is
     for a file the command *reads*, which is what `--content @<path>` needs; it
     cannot be a `.go` file, because a body's statements are not a Go file and
@@ -42,7 +44,7 @@ them can be seen not to touch the other.
 Each input file may have an ".out.go" counterpart holding its expected contents
 after the command runs. **An input with no ".out.go" must come out
 byte-identical**, which is what catches a command that changes more than it
-should.
+should. A ".new.go" member must not exist in preview mode and must be created in place; a ".delete.go" member must survive previews unchanged and disappear in place.
 
 Every archive is run three ways: `--print-patch` against `want.patch` (when it
 has one), `--diff` (which must also leave every file on disk untouched), and in

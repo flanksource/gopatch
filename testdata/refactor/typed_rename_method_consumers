@@ -1,0 +1,64 @@
+Renames a producer method and the producer interface connected to it only by a
+consumer assignment.
+
+The cross-module method closure must return to the producer and rename Saver's
+declaration as well as File.Save and the consumer call.
+
+-- args --
+rename method File.Save Store --consumers consumer
+
+-- go.mod --
+module example.com/producer
+
+go 1.23
+
+-- model/model.in.go --
+package model
+
+type Saver interface {
+	Save() error
+}
+
+type File struct{}
+
+func (File) Save() error { return nil }
+
+-- model/model.out.go --
+package model
+
+type Saver interface {
+	Store() error
+}
+
+type File struct{}
+
+func (File) Store() error { return nil }
+
+-- consumer/go.mod --
+module example.com/consumer
+
+go 1.23
+
+require example.com/producer v0.0.0
+
+replace example.com/producer => ..
+
+-- consumer/app/app.in.go --
+package app
+
+import "example.com/producer/model"
+
+func Store(s model.Saver) error {
+	var _ model.Saver = model.File{}
+	return s.Save()
+}
+
+-- consumer/app/app.out.go --
+package app
+
+import "example.com/producer/model"
+
+func Store(s model.Saver) error {
+	var _ model.Saver = model.File{}
+	return s.Store()
+}

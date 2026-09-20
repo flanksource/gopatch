@@ -1,0 +1,29 @@
+Move a complete file to a new package, delete the source, create the destination, and rewrite a typed consumer.
+
+-- args --
+move file old/value.go new
+-- patterns --
+-- go.mod --
+module example.com/move
+
+go 1.23
+-- old/value.delete.go --
+package old
+
+const Value = 1
+-- new/value.new.go --
+package new
+
+const Value = 1
+-- app/app.in.go --
+package app
+
+import "example.com/move/old"
+
+const Value = old.Value
+-- app/app.out.go --
+package app
+
+import "example.com/move/new"
+
+const Value = new.Value

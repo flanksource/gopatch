@@ -24,7 +24,8 @@ import (
 // compiles the declaring package and breaks the assignment somewhere else.
 func (p *Program) Rename(sym *Symbol, to string) (int, error) {
 	if sym.Kind == KindMethod {
-		if err := p.linkMethodSet(sym); err != nil {
+		p.linkMethodSet(sym)
+		if err := p.checkRenamable(sym); err != nil {
 			return 0, err
 		}
 	}
@@ -135,7 +136,7 @@ func memberKind(named *types.Named, name string) string {
 // an interface. Every such pair has to move together, so the closure is walked
 // until it stops growing; a method outside the loaded module cannot be renamed,
 // so the operation is refused instead of half-applied.
-func (p *Program) linkMethodSet(sym *Symbol) error {
+func (p *Program) linkMethodSet(sym *Symbol) {
 	name := sym.Name()
 
 	var finder satisfy.Finder
@@ -185,7 +186,6 @@ func (p *Program) linkMethodSet(sym *Symbol) error {
 		sym.owners = append(sym.owners, owner)
 	}
 
-	return p.checkRenamable(sym)
 }
 
 // methodNamed returns t's method called name, or nil when it has none.
@@ -229,7 +229,7 @@ func (p *Program) checkRenamable(sym *Symbol) error {
 			outside["the language itself"] = true
 			continue
 		}
-		if !loaded[obj.Pkg().Path()] {
+		if !loaded[obj.Pkg().Path()] && !sym.editablePackages[obj.Pkg().Path()] {
 			outside[describeMethod(obj)] = true
 		}
 	}

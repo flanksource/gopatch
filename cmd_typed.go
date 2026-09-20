@@ -139,15 +139,20 @@ func (cmd *mainCmd) runTyped(req typedRequest) error {
 	}
 	logger := log.New(logOut, "", 0)
 
+	changes := make([]sourceChange, 0, len(edits))
 	for _, e := range edits {
 		path := sourcePath{Absolute: e.Path, Provided: e.Path}
 		if rel, err := filepath.Rel(cwd, e.Path); err == nil {
 			path.Provided = rel
 		}
-
-		if err := cmd.emit(&req.Options.apply, path, e.Original, e.Modified, []string{summary}); err != nil {
-			return err
-		}
+		changes = append(changes, sourceChange{
+			Path: path, Original: e.Original, Modified: e.Modified, Comments: []string{summary},
+		})
+	}
+	if err := cmd.emitChanges(&req.Options.apply, changes); err != nil {
+		return err
+	}
+	for _, e := range edits {
 		logger.Printf("%s: patched", e.Path)
 	}
 

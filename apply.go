@@ -191,6 +191,38 @@ type sourcePath struct {
 	Absolute string
 }
 
+// sourceChange is a fully rendered file edit ready for output.
+type sourceChange struct {
+	Path               sourcePath
+	Original, Modified []byte
+	Comments           []string
+}
+
+// emitChanges validates a complete edit set before emitting its first file.
+func (cmd *mainCmd) emitChanges(opts *options, changes []sourceChange) error {
+	seen := make(map[string]bool, len(changes))
+	for _, change := range changes {
+		if seen[change.Path.Absolute] {
+			return fmt.Errorf("duplicate edit for %v", change.Path.Absolute)
+		}
+		seen[change.Path.Absolute] = true
+		current, err := os.ReadFile(change.Path.Absolute)
+		if err != nil {
+			return fmt.Errorf("re-read %v before emitting: %w", change.Path.Absolute, err)
+		}
+		if !bytes.Equal(current, change.Original) {
+			return fmt.Errorf("%v changed after it was loaded; nothing was written", change.Path.Absolute)
+		}
+	}
+
+	for _, change := range changes {
+		if err := cmd.emit(opts, change.Path, change.Original, change.Modified, change.Comments); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func findGoFiles(cwd, path string) (_ []sourcePath, err error) {
 	// Users may expect "./..."-stlye patterns to work.
 	path = strings.TrimSuffix(path, "...")

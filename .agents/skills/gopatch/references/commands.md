@@ -28,6 +28,8 @@ Names are counted from the **right**, because an import path carries dots of its
 | `--skip-import-processing` | Do not run `goimports` over the result. |
 | `--print-patch` | *Syntactic commands only.* Print the generated gopatch program instead of applying it. |
 
+`move` shares `--diff` but not the other transformation flags; it provides `--dry-run` for a compact move summary and documents its own options below.
+
 ## rename
 
 ### Syntactic — works on code that does not compile
@@ -66,11 +68,35 @@ Because these match by name, a local variable that happens to share it is rewrit
 ```shell
 gopatch rename field  User.Name    Title ./...
 gopatch rename method '*Client.Do' Send  ./...
+gopatch rename field  User.Name    Title --consumers ../services ./...
+gopatch rename method Client.Do    Send  --consumers-from repos.txt ./...
 ```
 
 `rename field` moves the declaration, every `x.Field` selector on that type, and every key in a keyed composite literal of it, together, in one pass over the whole module. A field of the same name on another type is left alone.
 
 `rename method` renames the method, the interface method it implements, and every other implementation of that interface. It refuses when the interface is declared outside the module.
+
+`--consumers <dir>` is repeatable and recursively discovers other modules whose `go.mod` requires the producer module. `--consumers-from <file>` reads the same search roots one per line. Both flags are limited to `rename field` and `rename method`; all selected modules must type-check, and no file is written until every edit has been prepared. Consumer code is resolved against the producer version it currently requires.
+
+## move
+
+```shell
+gopatch move file   internal/old/user.go internal/model/ --dry-run
+gopatch move struct old.User             internal/model/user.go --diff
+gopatch move type   old.ID               internal/model/id.go
+gopatch move func   file.go:Load          internal/config/load.go
+gopatch move var    old.DefaultTimeout    internal/config/defaults.go
+gopatch move const  old.DefaultPort       internal/config/defaults.go
+gopatch move method file.go:Client.Close  internal/client/close.go
+```
+
+`move file` accepts an existing or new destination directory, preserving the source basename, or an explicit `.go` path. A same-package move only relocates source. A cross-package move rewrites the package clause, imports, and every typed reference in the module. It also rewrites modules in the active `go.work`; use repeatable `--consumers` or `--consumers-from` to add consumer search roots.
+
+Moving a named type also moves all receiver methods. `move struct` additionally verifies that the target's underlying type is a struct. A method moved by itself must remain in its receiver package. A source file left with no declarations is deleted.
+
+`move` prepares and type-checks the full overlay before the first filesystem change. It refuses destination collisions, import cycles, inaccessible private dependencies, incompatible build constraints or `_test.go` classification, cgo files, partial moves of files containing `init`, and grouped constants whose implicit values or `iota` semantics cannot be preserved.
+
+`--dry-run` prints a compact summary of source and destination paths, package changes, declarations, references, and file create/update/delete counts. `--diff` prints the full unified diff. Both write nothing and cannot be combined. `move` does not accept `--print-only`.
 
 ## add
 
