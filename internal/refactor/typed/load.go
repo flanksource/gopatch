@@ -75,6 +75,13 @@ type FileEdit struct {
 
 	// Modified is the contents after the refactoring.
 	Modified []byte
+
+	// Create and Delete describe edits whose path did not or will not exist.
+	Create bool
+	Delete bool
+
+	// Mode is retained for moves and used when a new file is created.
+	Mode os.FileMode
 }
 
 // Program is a loaded, type-checked module ready to be refactored.
@@ -85,6 +92,9 @@ type Program struct {
 	// root is the module directory, used to report positions the way the rest of
 	// gopatch's output does rather than as absolute paths.
 	root string
+
+	// modulePath is the import-path prefix declared by the root go.mod.
+	modulePath string
 
 	// files indexes the decorated syntax by absolute path. A file compiled into
 	// more than one package — the package and its test variant — is indexed
@@ -128,6 +138,7 @@ func Load(req Request) (*Program, error) {
 	if err != nil {
 		return nil, err
 	}
+	root = realPath(root)
 
 	env := req.Env
 	if env == nil {
@@ -172,6 +183,9 @@ func Load(req Request) (*Program, error) {
 			continue
 		}
 		p.pkgs = append(p.pkgs, pkg)
+		if p.modulePath == "" && pkg.Module != nil && realPath(pkg.Module.Dir) == realPath(root) {
+			p.modulePath = pkg.Module.Path
+		}
 
 		if pkg.Name != "" {
 			p.names[pkg.PkgPath] = pkg.Name
@@ -344,6 +358,10 @@ func (p *Program) Edits() ([]FileEdit, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read %v: %w", path, err)
 		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("stat %v: %w", path, err)
+		}
 
 		r := decorator.NewRestorerWithImports(df.pkg.PkgPath, simple.New(p.names))
 		fr := r.FileRestorer()
@@ -368,7 +386,23 @@ func (p *Program) Edits() ([]FileEdit, error) {
 			Path:     path,
 			Original: original,
 			Modified: buf.Bytes(),
+			Mode:     info.Mode().Perm(),
 		})
 	}
 	return edits, nil
+}
+
+// Root returns the canonical root directory of the loaded module.
+func (p *Program) Root() string {
+	return p.root
+}
+
+// FilePaths returns every source file owned by the loaded module.
+func (p *Program) FilePaths() []string {
+	return append([]string(nil), p.order...)
+}
+
+// ModulePath returns the import path declared by the loaded module.
+func (p *Program) ModulePath() string {
+	return p.modulePath
 }

@@ -26,6 +26,12 @@ const (
 
 	// KindMethod is a method declared on a named type.
 	KindMethod
+
+	// KindVar is a package-level variable.
+	KindVar
+
+	// KindConst is a package-level constant.
+	KindConst
 )
 
 // String names the kind as it appears in messages.
@@ -39,6 +45,10 @@ func (k Kind) String() string {
 		return "field"
 	case KindMethod:
 		return "method"
+	case KindVar:
+		return "var"
+	case KindConst:
+		return "const"
 	default:
 		return fmt.Sprintf("Kind(%d)", int(k))
 	}
@@ -92,6 +102,11 @@ type Symbol struct {
 	// owners are the named types that declare a field or method. There is more
 	// than one once a method rename has been extended across an interface.
 	owners []*types.Named
+
+	// editablePackages are packages owned by another module participating in a
+	// cross-module rename. Their objects may appear in this load through export
+	// data and are safe to link because that module will be edited separately.
+	editablePackages map[string]bool
 }
 
 // Resolve finds the declaration q names.
@@ -217,7 +232,7 @@ func (q Query) describeScope() string {
 func (q Query) lookup(pkg *decorator.Package) (types.Object, *types.Named, error) {
 	scope := pkg.Types.Scope()
 
-	if q.Kind == KindType || q.Kind == KindFunc {
+	if q.Kind == KindType || q.Kind == KindFunc || q.Kind == KindVar || q.Kind == KindConst {
 		obj := scope.Lookup(q.Name)
 		if obj == nil {
 			return nil, nil, nil
@@ -225,11 +240,19 @@ func (q Query) lookup(pkg *decorator.Package) (types.Object, *types.Named, error
 		switch obj.(type) {
 		case *types.TypeName:
 			if q.Kind != KindType {
-				return nil, nil, fmt.Errorf("%q is a type, not a func", q.Name)
+				return nil, nil, fmt.Errorf("%q is a type, not a %v", q.Name, q.Kind)
 			}
 		case *types.Func:
 			if q.Kind != KindFunc {
-				return nil, nil, fmt.Errorf("%q is a func, not a type", q.Name)
+				return nil, nil, fmt.Errorf("%q is a func, not a %v", q.Name, q.Kind)
+			}
+		case *types.Var:
+			if q.Kind != KindVar {
+				return nil, nil, fmt.Errorf("%q is a var, not a %v", q.Name, q.Kind)
+			}
+		case *types.Const:
+			if q.Kind != KindConst {
+				return nil, nil, fmt.Errorf("%q is a const, not a %v", q.Name, q.Kind)
 			}
 		default:
 			return nil, nil, fmt.Errorf(
