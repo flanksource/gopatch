@@ -1,0 +1,40 @@
+Refuses the entire rename when a selected consumer does not type-check.
+
+The producer would otherwise change, so the refusal mode proves preparation
+finishes for every module before any file is written.
+
+-- args --
+rename field User.Name Title --consumers consumer
+
+-- want.error --
+does not type-check
+
+-- go.mod --
+module example.com/producer
+
+go 1.23
+
+-- model/user.in.go --
+package model
+
+type User struct {
+	Name string
+}
+
+-- consumer/go.mod --
+module example.com/consumer
+
+go 1.23
+
+require example.com/producer v0.0.0
+
+replace example.com/producer => ..
+
+-- consumer/app/app.in.go --
+package app
+
+import "example.com/producer/model"
+
+func Read(u model.User) string {
+	return missing(u.Name)
+}

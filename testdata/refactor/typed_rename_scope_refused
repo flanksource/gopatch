@@ -1,0 +1,31 @@
+Refuses a producer rename when the positional paths omit another affected file.
+
+-- args --
+rename field User.Name Title
+
+-- patterns --
+model/user.go
+
+-- want.error --
+which the given paths do not cover
+
+-- go.mod --
+module example.com/scope
+
+go 1.23
+
+-- model/user.in.go --
+package model
+
+type User struct {
+	Name string
+}
+
+-- app/app.in.go --
+package app
+
+import "example.com/scope/model"
+
+func Read(u model.User) string {
+	return u.Name
+}

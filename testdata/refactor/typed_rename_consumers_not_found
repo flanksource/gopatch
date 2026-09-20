@@ -1,0 +1,29 @@
+Refuses an explicitly requested consumer search that finds no requiring module.
+
+-- args --
+rename field User.Name Title --consumers unrelated
+
+-- want.error --
+consumer discovery found no modules that require the producer module
+
+-- go.mod --
+module example.com/producer
+
+go 1.23
+
+-- model/user.in.go --
+package model
+
+type User struct {
+	Name string
+}
+
+-- unrelated/go.mod --
+module example.com/unrelated
+
+go 1.23
+
+-- unrelated/app/app.in.go --
+package app
+
+func Value() string { return "unrelated" }

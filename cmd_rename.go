@@ -116,7 +116,7 @@ func (cmd *mainCmd) newRenameCommand() *cobra.Command {
 }
 
 func (cmd *mainCmd) newRenameFieldCommand() *cobra.Command {
-	var opts typedOptions
+	var opts typedRenameOptions
 
 	c := &cobra.Command{
 		Use:   "field <Struct>.<field> <new> [pattern...]",
@@ -124,7 +124,8 @@ func (cmd *mainCmd) newRenameFieldCommand() *cobra.Command {
 		Long: "Rename a struct field.\n\n" +
 			"The declaration, every x.Field selector on that type, and every key in a " +
 			"keyed composite literal of it move together. A field of the same name on " +
-			"another type is left alone." + _typedLongSuffix,
+			"another type is left alone. Use --consumers or --consumers-from to include " +
+			"separate modules that require this one." + _typedLongSuffix,
 		Example: examples(
 			"# the declaration, every u.Name, and every User{Name: ...} key",
 			"gopatch rename field User.Name Title ./...",
@@ -138,6 +139,9 @@ func (cmd *mainCmd) newRenameFieldCommand() *cobra.Command {
 			"gopatch rename field example.com/store.User.Name Title ./...",
 			"gopatch rename field ./internal/store:User.Name  Title ./...",
 			"gopatch rename field User.Name Title --package store ./...",
+			"",
+			"# include every requiring module found below sibling repositories",
+			"gopatch rename field User.Name Title --consumers ../services ./...",
 		),
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -145,13 +149,13 @@ func (cmd *mainCmd) newRenameFieldCommand() *cobra.Command {
 		},
 	}
 
-	addTypedFlags(c.Flags(), &opts)
+	addTypedRenameFlags(c.Flags(), &opts)
 
 	return c
 }
 
 func (cmd *mainCmd) newRenameMethodCommand() *cobra.Command {
-	var opts typedOptions
+	var opts typedRenameOptions
 
 	c := &cobra.Command{
 		Use:   "method <Recv>.<method> <new> [pattern...]",
@@ -164,7 +168,8 @@ func (cmd *mainCmd) newRenameMethodCommand() *cobra.Command {
 			"the assignment somewhere else. The same applies in reverse: renaming an " +
 			"interface method renames every implementation.\n\n" +
 			"An implementation outside this module cannot be renamed, so a method that " +
-			"satisfies one — fmt.Stringer, for instance — is refused." + _typedLongSuffix,
+			"satisfies one — fmt.Stringer, for instance — is refused. Selected consumer " +
+			"modules participate in the same interface closure." + _typedLongSuffix,
 		Example: examples(
 			"# Client.Do, the interface it implements, and every implementation",
 			"gopatch rename method Client.Do Send ./...",
@@ -178,6 +183,9 @@ func (cmd *mainCmd) newRenameMethodCommand() *cobra.Command {
 			"# qualify the receiver when more than one package declares it",
 			"gopatch rename method store.Client.Do               Send ./...",
 			"gopatch rename method './internal/store:*Client.Do' Send ./...",
+			"",
+			"# load requiring modules listed one search directory per line",
+			"gopatch rename method Client.Do Send --consumers-from repos.txt ./...",
 		),
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -185,13 +193,13 @@ func (cmd *mainCmd) newRenameMethodCommand() *cobra.Command {
 		},
 	}
 
-	addTypedFlags(c.Flags(), &opts)
+	addTypedRenameFlags(c.Flags(), &opts)
 
 	return c
 }
 
 // runRenameSymbol resolves a type-aware rename target and applies it.
-func (cmd *mainCmd) runRenameSymbol(arg string, kind typed.Kind, opts *typedOptions, args []string) error {
+func (cmd *mainCmd) runRenameSymbol(arg string, kind typed.Kind, opts *typedRenameOptions, args []string) error {
 	target, err := refactor.ParseTarget(arg, args[0], 2)
 	if err != nil {
 		return err
@@ -201,27 +209,16 @@ func (cmd *mainCmd) runRenameSymbol(arg string, kind typed.Kind, opts *typedOpti
 		return err
 	}
 
-	q, err := cmd.query(arg, kind, target, opts)
+	q, err := cmd.query(arg, kind, target, &opts.typedOptions)
 	if err != nil {
 		return err
 	}
 
-	return cmd.runTyped(typedRequest{
+	return cmd.runTypedRename(typedRenameRequest{
 		Options:  opts,
 		Patterns: args[2:],
-		Run: func(p *typed.Program) (string, error) {
-			sym, err := p.Resolve(q)
-			if err != nil {
-				return "", err
-			}
-
-			n, err := p.Rename(sym, to)
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("rename %v to %v in %v (%d identifiers)",
-				sym.Desc, to, sym.Pkg, n), nil
-		},
+		Query:    q,
+		To:       to,
 	})
 }
 

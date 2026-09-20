@@ -238,6 +238,14 @@ gopatch rename import  <old-path> <new-path>       [pattern...]
 gopatch rename field   <Struct>.<field> <new>      [pattern...]
 gopatch rename method  <Recv>.<method> <new>       [pattern...]
 
+gopatch move   file    <source.go> <destination-dir|destination.go>
+gopatch move   struct  <target> <destination.go>
+gopatch move   type    <target> <destination.go>
+gopatch move   func    <target> <destination.go>
+gopatch move   var     <target> <destination.go>
+gopatch move   const   <target> <destination.go>
+gopatch move   method  <Type>.<method> <destination.go>
+
 gopatch add    field   <Struct>.<field> <type>     [pattern...]
 gopatch add    param   <func> <name> <type>        [pattern...]
 gopatch add    struct  <Name> <file.go>
@@ -263,8 +271,9 @@ gopatch install        [skill...]        [--agent <id>] [--dir <path>]
 ```
 
 They are served by two engines, and each command's `--help` says which one it
-uses. Both write their results the same way, so `--diff`, `--print-only` and
-in-place rewriting behave identically whichever is at work.
+uses. Both support `--diff` and in-place rewriting. Commands that transform
+existing files also support `--print-only`; `move` uses `--dry-run` for a
+compact relocation summary instead.
 
 ### Naming the target
 
@@ -343,7 +352,7 @@ sites, and gopatch cannot add the first import to a file that has none.
 
 ### Commands that use type information
 
-`rename field`, `rename method`, `delete struct|type|func|method`,
+`rename field`, `rename method`, `move`, `delete struct|type|func|method`,
 `add struct|func|method`, `edit method`, `edit func --content` and `replace`
 cannot be expressed as a patch. A patch matching `x.Name` would rewrite every
 type's `Name`; a patch cannot delete a declaration at all, because its
@@ -362,6 +371,31 @@ $ gopatch rename field User.Name Title -d ./...
 renames the declaration, every `u.Name` on a `User`, and every `User{Name: ...}`
 key, in every package of the module — and leaves another type's `Name` alone.
 
+`rename field` and `rename method` can extend that exact type-aware sweep to other modules. Pass `--consumers <dir>` more than once, or list search directories one per line in `--consumers-from <file>`. Gopatch recursively finds modules whose `go.mod` requires the producer module, type-checks all of them, computes every producer and consumer edit, and writes only after the entire set succeeds:
+
+```shell
+gopatch rename field User.Name Title --consumers ../services --consumers ../tools ./...
+gopatch rename method Client.Do Send --consumers-from repos.txt --diff ./...
+```
+
+Consumer source is resolved against the producer version its module currently requires. Updating that requirement is a separate dependency-management step; local `replace` directives and `go.work` files continue to control which producer source `go/packages` sees.
+
+### Moving files and declarations
+
+`gopatch move` relocates a complete Go file or one package-level declaration. Moving within a package only changes file ownership. Moving to another package updates the package clause, imports, and typed references throughout the producer module, every module in the active `go.work`, and any additional consumers selected with `--consumers` or `--consumers-from`.
+
+```shell
+gopatch move file internal/old/user.go internal/model/ --dry-run
+gopatch move struct old.User internal/model/user.go --diff
+gopatch move func file.go:Load internal/config/load.go
+gopatch move var old.DefaultTimeout internal/config/defaults.go
+gopatch move method file.go:Client.Close internal/client/close.go
+```
+
+A named type carries all of its receiver methods. A method moved alone must remain in its receiver's package. Empty source files are removed, a missing destination directory becomes a package named after that directory, and an existing destination file must declare the target package.
+
+Before writing, gopatch renders and type-checks the complete producer-and-consumer overlay. It refuses destination name collisions, import cycles, private dependencies that would become inaccessible, incompatible test/build contexts, partial `init` ownership changes, cgo files, and unsafe grouped constants. `--dry-run` prints paths, package changes, declaration and reference counts, and file create/update/delete counts without source content; `--diff` prints the full patch. The two modes are mutually exclusive.
+
 In exchange they need the module to compile. If it does not, they report the
 build errors and change nothing. A few more consequences:
 
@@ -369,6 +403,7 @@ build errors and change nothing. A few more consequences:
     live in any package. The paths bound what may be *written*: if the change
     reaches a file they do not cover, the command says so and writes nothing,
     rather than applying half a rename.
+-   Consumer search roots include normal nested modules and skip hidden, underscore-prefixed, `vendor` and `testdata` directories. A selected consumer that does not reference the symbol is simply unchanged, but it must still type-check.
 -   `rename method` moves the interface methods a type is required to have, and
     their other implementations, along with the method. If one of them is
     outside the module — `fmt.Stringer`, say — the rename is refused.

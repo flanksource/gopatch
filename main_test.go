@@ -218,6 +218,7 @@ func TestSubcommandTree(t *testing.T) {
 		"add":    {"field", "param", "struct", "func", "method"},
 		"delete": {"field", "struct", "type", "func", "method"},
 		"edit":   {"field", "func", "method"},
+		"move":   {"file", "struct", "type", "func", "var", "const", "method"},
 	}
 
 	root, _ := discardCmd().newRootCommand()

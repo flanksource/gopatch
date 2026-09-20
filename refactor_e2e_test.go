@@ -100,7 +100,9 @@ type refactorFile struct {
 	// Want is the expected content after the command runs. A file with no
 	// ".out.go" counterpart must come out byte-identical, which is what catches
 	// a command that changes more than it should.
-	Want []byte
+	Want            []byte
+	InitiallyExists bool
+	WantMissing     bool
 }
 
 func loadRefactorArchive(t *testing.T, path string) *refactorArchive {
@@ -111,6 +113,8 @@ func loadRefactorArchive(t *testing.T, path string) *refactorArchive {
 
 	ta := &refactorArchive{archive: archive}
 	outputs := make(map[string][]byte)
+	created := make(map[string][]byte)
+	deleted := make(map[string]bool)
 	var inputs []string
 	var patternsGiven bool
 
@@ -143,11 +147,20 @@ func loadRefactorArchive(t *testing.T, path string) *refactorArchive {
 		// commands need. A ".txt" member is a file the command reads rather than
 		// rewrites, which is what "--content @<path>" needs. Both are written out
 		// but are not refactoring targets.
-		case f.Name == "go.mod", strings.HasSuffix(f.Name, ".txt"):
+		case filepath.Base(f.Name) == "go.mod", strings.HasSuffix(f.Name, ".txt"):
 
 		case strings.HasSuffix(f.Name, ".out.go"):
 			outputs[strings.TrimSuffix(f.Name, ".out.go")] = singleTrailingNewline(f.Data)
 			continue
+		case strings.HasSuffix(f.Name, ".new.go"):
+			created[strings.TrimSuffix(f.Name, ".new.go")] = singleTrailingNewline(f.Data)
+			continue
+		case strings.HasSuffix(f.Name, ".delete.go"):
+			name := strings.TrimSuffix(f.Name, ".delete.go")
+			f.Name = name + ".go"
+			f.Data = singleTrailingNewline(f.Data)
+			inputs = append(inputs, name)
+			deleted[name] = true
 
 		case strings.HasSuffix(f.Name, ".in.go"):
 			name := strings.TrimSuffix(f.Name, ".in.go")
@@ -173,6 +186,11 @@ func loadRefactorArchive(t *testing.T, path string) *refactorArchive {
 	}
 
 	for _, name := range inputs {
+		if deleted[name] {
+			delete(outputs, name)
+			ta.Files = append(ta.Files, refactorFile{Name: name + ".go", InitiallyExists: true, WantMissing: true})
+			continue
+		}
 		want, ok := outputs[name]
 		if !ok {
 			// No .out.go means the file must not change.
@@ -183,11 +201,14 @@ func loadRefactorArchive(t *testing.T, path string) *refactorArchive {
 			}
 		}
 		delete(outputs, name)
-		ta.Files = append(ta.Files, refactorFile{Name: name + ".go", Want: want})
+		ta.Files = append(ta.Files, refactorFile{Name: name + ".go", Want: want, InitiallyExists: true})
 	}
 
 	for name := range outputs {
 		require.Failf(t, "output without an input", "%q.out.go in %q", name, path)
+	}
+	for name, want := range created {
+		ta.Files = append(ta.Files, refactorFile{Name: name + ".go", Want: want})
 	}
 
 	if !patternsGiven {
@@ -269,6 +290,13 @@ func runRefactorTest(t *testing.T, path string) {
 			require.NoError(t, err)
 			assert.Equal(t, string(af.Data), string(got), "%v was modified", af.Name)
 		}
+		for _, f := range ta.Files {
+			if f.InitiallyExists {
+				continue
+			}
+			_, err := os.Stat(filepath.Join(dir, f.Name))
+			assert.True(t, os.IsNotExist(err), "%v was created", f.Name)
+		}
 	}
 
 	if ta.WantError != "" {
@@ -307,6 +335,11 @@ func runRefactorTest(t *testing.T, path string) {
 		require.NoError(t, err, "could not apply")
 
 		for _, f := range ta.Files {
+			if f.WantMissing {
+				_, err := os.Stat(filepath.Join(dir, f.Name))
+				assert.True(t, os.IsNotExist(err), "%v still exists", f.Name)
+				continue
+			}
 			got, err := os.ReadFile(filepath.Join(dir, f.Name))
 			require.NoErrorf(t, err, "failed to read %q", f.Name)
 			assert.Equal(t, string(f.Want), string(got), f.Name)
