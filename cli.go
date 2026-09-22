@@ -141,7 +141,8 @@ func (cmd *mainCmd) newRootCommand() (*cobra.Command, *options) {
 			"`gopatch patch` applies a patch file. The other commands take the change " +
 			"as arguments instead, so the common mechanical refactorings need no patch " +
 			"at all: see `gopatch rename --help`, `move`, `add`, `delete`, `edit` and " +
-			"`replace`. `gopatch tree` inspects the package and declaration structure. " +
+			"`replace`. `gopatch tree` inspects package structure, and `gopatch ref` " +
+			"finds typed symbol references. " +
 			"`gopatch install` writes the agent skills this binary carries.\n\n" +
 			"Patches may still be applied by the root command, but that is deprecated " +
 			"and will be removed in " + _rootPatchRemovalVersion + "; use `gopatch patch`.\n\n" +
@@ -208,6 +209,7 @@ func (cmd *mainCmd) subcommands() []*cobra.Command {
 		cmd.newReplaceCommand(),
 		cmd.newMoveCommand(),
 		cmd.newTreeCommand(),
+		cmd.newRefCommand(),
 		cmd.newInstallCommand(),
 		cmd.newVersionCommand(),
 	}, cmd.newDocTopics()...)
