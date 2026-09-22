@@ -274,7 +274,7 @@ func findFiles(cwd string, patterns []string) (_ []sourcePath, err error) {
 	for _, pat := range patterns {
 		fs, findErr := findGoFiles(cwd, pat)
 		if findErr != nil {
-			err = multierr.Append(err, fmt.Errorf("enumerating Go files in %q: %v", pat, err))
+			err = multierr.Append(err, fmt.Errorf("enumerating Go files in %q: %v", pat, findErr))
 			continue
 		}
 
