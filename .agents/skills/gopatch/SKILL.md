@@ -17,7 +17,7 @@ command -v gopatch || go install github.com/uber-go/gopatch@latest
 
 That gets the patch engine, which has been in releases since 0.4.0. On a released binary it is spelled `gopatch -p rules.patch ./...`, without the `patch` subcommand.
 
-The `patch`, `tree`, `rename`, `move`, `add`, `delete`, `edit`, `replace` and `install` subcommands used below are **not in a release yet**; they live in the [flanksource fork](https://github.com/flanksource/gopatch). Build them from a checkout:
+The `patch`, `tree`, `ref`, `rename`, `move`, `add`, `delete`, `edit`, `replace` and `install` subcommands used below are **not in a release yet**; they live in the [flanksource fork](https://github.com/flanksource/gopatch). Build them from a checkout:
 
 ```shell
 git clone https://github.com/flanksource/gopatch && cd gopatch && make install
@@ -30,9 +30,10 @@ git clone https://github.com/flanksource/gopatch && cd gopatch && make install
 | The change you want | Command |
 |---|---|
 | Inspect packages, files, and declarations with line numbers | `gopatch tree ./...` |
+| Find the typed definitions and uses of a symbol | `gopatch ref User.Name --package model` |
 | Rename a struct or any named type | `gopatch rename struct HTTPClient Client ./...`<br>`gopatch rename type Duration Interval ./...` |
 | Rename a function, with its calls | `gopatch rename func doWork Work ./...` |
-| …and in packages that import it | add `--import example.com/pkg` (`--qualifier` if they alias it) |
+| …and in other modules | add repeatable `--consumers ../repos`, use `--consumers-from repos.txt`, or configure `.gopatch.yml` |
 | Rename a struct field: declaration, every `x.Field`, every `T{Field: …}` key | `gopatch rename field User.Name Title ./...` |
 | Rename a method, its interface, every implementation | `gopatch rename method '*Client.Do' Send ./...` |
 | …and in other Go modules that require this module | add repeatable `--consumers ../repos`, or `--consumers-from repos.txt` |
@@ -57,9 +58,9 @@ git clone https://github.com/flanksource/gopatch && cd gopatch && make install
 
 Subcommands are served by two engines, and which one you get decides what the command can do and what it needs from you.
 
-**Syntactic** — `rename package|import|struct|type|func`, `add field|param`, `delete field`, `edit field|func|method` with `--type`/`--tag`/`--params`/`--results`. These render a gopatch program and run it. They match by name, so they work on **code that does not compile** — mid-refactor, mid-merge, generated-but-broken. The cost is that a local variable sharing the name is rewritten too, and by default only the declaring package is touched (`--import` extends it to importers).
+**Syntactic** — `add field|param`, `delete field`, `edit field|func|method` with `--type`/`--tag`/`--params`/`--results`. These render a gopatch program and run it. They match by name, so they work on **code that does not compile** — mid-refactor, mid-merge, generated-but-broken.
 
-**Type-aware** — `rename field|method`, `move`, `delete struct|type|func|method`, `add struct|func|method`, `edit … --content`, `replace`. These load the whole module with `go/packages` and rewrite exactly the references that resolve to the same symbol. `User.Name` never touches `Account.Name`. The cost is that **the module must compile**; if it does not, the command reports the build errors and changes nothing:
+**Type-aware** — `ref`, every `rename`, `move`, `delete struct|type|func|method`, `add struct|func|method`, `edit … --content`, `replace`. These load the whole module with `go/packages` and resolve exactly the references that mean the same symbol. `ref` prints those locations without changing files; transformation commands rewrite them. `User.Name` never touches `Account.Name`. The cost is that **the module must compile**; if it does not, the command reports the build errors and changes nothing:
 
 ```
 the code does not type-check, so a type-aware refactoring cannot be trusted:
@@ -74,13 +75,15 @@ Never mix the two in one logical change. A half-applied refactor that exits 0 is
 ## Workflow
 
 1. **Preview.** `-d` / `--diff` writes nothing. Do this first, every time, especially in a dirty worktree.
-2. **Read the generated program** when a syntactic command surprises you: `--print-patch` prints the gopatch program instead of applying it. It is the fastest way to see the scope of a match, including the ` package X` context line that keeps a field change out of a same-named struct in another package.
+2. **Read the generated program** when a syntactic add/delete/edit command surprises you: `--print-patch` prints the gopatch program instead of applying it. Typed renames intentionally do not accept `--print-patch`, `--import`, or `--qualifier`; use `--diff`.
 3. **Apply**, then build and run the focused tests. The output is gofmt'd, so no `gofmt -w` chaser. Imports are handled for you by the type-aware commands (that is what `--import` feeds); in a **patch file** you state import changes yourself, as a `-import "old"` / `+import "new"` pair.
 4. **Scope by path.** Positional patterns are files and directories (`./...`, `./internal/http`, `user.go`), not package patterns. Dot/underscore directories, `testdata/` and `vendor/` are skipped. Type-aware commands load the whole module but only write files your paths cover, and refuse when a required edit falls outside them.
 
-For `rename field` and `rename method`, `--consumers <dir>` recursively discovers other modules whose `go.mod` requires the producer module; repeat it for multiple search roots, or use `--consumers-from <file>` with one root per line. Every selected module must type-check, and every edit is prepared before the first write. A consumer is resolved against the producer version it currently requires, so changing that requirement remains a separate step.
+Every ref, rename, and move includes requiring modules from the active `go.work`. `--consumers <dir>` recursively discovers other modules whose `go.mod` requires the producer module; repeat it for multiple search roots, or use `--consumers-from <file>` with one root per line. `rename import` discovers modules containing the exact old import path instead, even for unrelated third-party paths. Every selected module must type-check, and every edit is prepared before the first write.
 
-For `move`, use `--dry-run` for a compact paths/counts summary or `--diff` for the complete source diff. Cross-package moves automatically include active `go.work` modules, and accept the same explicit consumer flags. Named types carry their receiver methods; method-only moves stay within the receiver package. The command validates the complete overlay before writing and refuses private dependencies, import cycles, name collisions, incompatible build contexts, cgo, and partial `init` moves.
+Consumer roots may also live in `<module>/.gopatch.yml` or `~/.gopatch.yml` as `consumers: [...]`. The project file replaces the home file, CLI consumer flags replace configured roots, and active workspace consumers are always added. Config paths are relative to the YAML file and may start with `~/`.
+
+For `move`, use `--dry-run` for a compact paths/counts summary or `--diff` for the complete source diff. Named types carry their receiver methods; method-only moves stay within the receiver package. Rename and move print each planned target or consumer file change to stderr in every mode, validate the complete overlay, and install the change set transactionally.
 
 Useful flags on transformation commands include `--print-only` (to stdout), `-v` (per-file report), `--skip-generated`, `--package` / a qualified target (`store.User.Name`, `./internal/store:User.Name`) when two packages declare the same name. `move` has its own preview contract described above. Flags and paths may come in any order; `gopatch -- <path>` forces a path that shares its name with a subcommand (`./add`, `./replace`) to be read as a path.
 

@@ -3,12 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
-	"log"
-	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/spf13/pflag"
 	"github.com/uber-go/gopatch/internal/refactor/consumers"
@@ -22,21 +18,25 @@ const (
 
 type typedRenameOptions struct {
 	typedOptions
-	Consumers     []string
-	ConsumersFrom string
+	consumerOptions
 }
 
 func addTypedRenameFlags(fs *pflag.FlagSet, opts *typedRenameOptions) {
 	addTypedFlags(fs, &opts.typedOptions)
+	addConsumerFlags(fs, &opts.consumerOptions)
+}
+
+func addConsumerFlags(fs *pflag.FlagSet, opts *consumerOptions) {
 	fs.StringArrayVar(&opts.Consumers, "consumers", nil, _consumersDesc)
 	fs.StringVar(&opts.ConsumersFrom, "consumers-from", "", _consumersFromDesc)
 }
 
 type typedRenameRequest struct {
-	Options  *typedRenameOptions
-	Patterns []string
-	Query    typed.Query
-	To       string
+	Options    *typedRenameOptions
+	Patterns   []string
+	Query      typed.Query
+	To         string
+	StructOnly bool
 }
 
 type renameModule struct {
@@ -46,10 +46,10 @@ type renameModule struct {
 }
 
 type renameBatch struct {
-	Root        string
-	Summary     string
-	Identifiers int
-	Edits       []typed.FileEdit
+	Root       string
+	ModulePath string
+	Producer   bool
+	Edits      []typed.FileEdit
 }
 
 func (cmd *mainCmd) runTypedRename(req typedRenameRequest) error {
@@ -73,7 +73,10 @@ func (cmd *mainCmd) runTypedRename(req typedRenameRequest) error {
 	if err != nil {
 		return err
 	}
-	modules, err := cmd.loadRenameModules(producer, req.Options)
+	if req.StructOnly && !target.IsStruct() {
+		return fmt.Errorf("%s is not a struct type", target.Desc)
+	}
+	modules, err := cmd.loadTypedModules(producer, &req.Options.consumerOptions)
 	if err != nil {
 		return err
 	}
@@ -82,6 +85,8 @@ func (cmd *mainCmd) runTypedRename(req typedRenameRequest) error {
 	batches, err := prepareRenameBatches(renamePreparation{
 		Modules: modules, Kind: req.Query.Kind, Target: target, Refs: refs,
 		EditablePackages: editable, To: req.To, Cwd: cwd, ProducerFiles: allowed,
+	}, func(batch renameBatch) error {
+		return cmd.printPlannedEdits(batch.Edits, producer.Root())
 	})
 	if err != nil {
 		return err
@@ -89,64 +94,47 @@ func (cmd *mainCmd) runTypedRename(req typedRenameRequest) error {
 	return cmd.emitRenameBatches(cwd, &req.Options.apply, batches)
 }
 
-func (cmd *mainCmd) loadRenameModules(producer *typed.Program, opts *typedRenameOptions) ([]renameModule, error) {
+func (cmd *mainCmd) loadTypedModules(producer *typed.Program, opts *consumerOptions) ([]renameModule, error) {
 	modules := []renameModule{{Root: producer.Root(), Program: producer, Producer: true}}
-	roots, err := cmd.consumerRoots(opts)
+	selection, err := cmd.consumerRoots(producer.Root(), opts)
 	if err != nil {
 		return modules, err
 	}
-	if len(roots) == 0 {
-		return modules, nil
-	}
-	found, err := consumers.Find(consumers.Request{ProducerRoot: producer.Root(), Roots: roots})
+	workspace, err := consumers.Workspace(producer.Root())
 	if err != nil {
 		return nil, err
 	}
-	if len(found) == 0 {
-		return nil, errors.New("consumer discovery found no modules that require the producer module")
+	found := workspace
+	if len(selection.Roots) > 0 {
+		discovered, findErr := consumers.Find(consumers.Request{ProducerRoot: producer.Root(), Roots: selection.Roots})
+		if findErr != nil {
+			return nil, findErr
+		}
+		if selection.Explicit && len(discovered) == 0 {
+			return nil, errors.New("consumer discovery found no modules that require the producer module")
+		}
+		found = append(found, discovered...)
 	}
+	sort.Slice(found, func(i, j int) bool {
+		return canonicalMovePath(found[i].Root) < canonicalMovePath(found[j].Root)
+	})
+	if len(found) == 0 {
+		return modules, nil
+	}
+	seen := map[string]bool{canonicalMovePath(producer.Root()): true}
 	for _, module := range found {
-		program, err := typed.Load(typed.Request{Dir: module.Root})
+		root := canonicalMovePath(module.Root)
+		if seen[root] {
+			continue
+		}
+		seen[root] = true
+		program, err := typed.Load(typed.Request{Dir: root})
 		if err != nil {
 			return nil, fmt.Errorf("load consumer module %v: %w", module.Root, err)
 		}
-		modules = append(modules, renameModule{Root: module.Root, Program: program})
+		modules = append(modules, renameModule{Root: root, Program: program})
 	}
 	return modules, nil
-}
-
-func (cmd *mainCmd) consumerRoots(opts *typedRenameOptions) ([]string, error) {
-	roots := append([]string(nil), opts.Consumers...)
-	requested := len(roots) > 0 || opts.ConsumersFrom != ""
-	if opts.ConsumersFrom != "" {
-		path, err := cmd.absPath(opts.ConsumersFrom)
-		if err != nil {
-			return nil, err
-		}
-		contents, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("read --consumers-from %v: %w", path, err)
-		}
-		for _, line := range strings.Split(string(contents), "\n") {
-			if root := strings.TrimSpace(line); root != "" {
-				roots = append(roots, root)
-			}
-		}
-	}
-	if requested && len(roots) == 0 {
-		return nil, errors.New("consumer discovery needs at least one non-empty search directory")
-	}
-	for i, root := range roots {
-		if root == "" {
-			return nil, errors.New("--consumers cannot be empty")
-		}
-		abs, err := cmd.absPath(root)
-		if err != nil {
-			return nil, err
-		}
-		roots[i] = abs
-	}
-	return roots, nil
 }
 
 func expandRenameRefs(modules []renameModule, kind typed.Kind, target *typed.Symbol) []typed.SymbolRef {
@@ -212,7 +200,7 @@ type renamePreparation struct {
 	ProducerFiles    []string
 }
 
-func prepareRenameBatches(req renamePreparation) ([]renameBatch, error) {
+func prepareRenameBatches(req renamePreparation, planned func(renameBatch) error) ([]renameBatch, error) {
 	var batches []renameBatch
 	var producerChanged bool
 	for _, module := range req.Modules {
@@ -223,7 +211,7 @@ func prepareRenameBatches(req renamePreparation) ([]renameBatch, error) {
 		if !module.Program.HasSourceIdentifiers(sym) {
 			continue
 		}
-		identifiers, err := module.Program.Rename(sym, req.To)
+		_, err := module.Program.Rename(sym, req.To)
 		if err != nil {
 			return nil, fmt.Errorf("prepare rename in %v: %w", module.Root, err)
 		}
@@ -238,11 +226,14 @@ func prepareRenameBatches(req renamePreparation) ([]renameBatch, error) {
 		if err := checkEditScope(req.Cwd, edits, allowed); err != nil {
 			return nil, err
 		}
-		batches = append(batches, renameBatch{
-			Root: module.Root, Identifiers: identifiers, Edits: edits,
-			Summary: fmt.Sprintf("rename %v to %v in %v (%d identifiers)",
-				req.Target.Desc, req.To, module.Root, identifiers),
-		})
+		batch := renameBatch{
+			Root: module.Root, ModulePath: module.Program.ModulePath(), Producer: module.Producer,
+			Edits: edits,
+		}
+		batches = append(batches, batch)
+		if err := planned(batch); err != nil {
+			return nil, err
+		}
 		producerChanged = producerChanged || module.Producer
 	}
 	if !producerChanged {
@@ -253,7 +244,9 @@ func prepareRenameBatches(req renamePreparation) ([]renameBatch, error) {
 
 func (cmd *mainCmd) emitRenameBatches(cwd string, opts *options, batches []renameBatch) error {
 	var changes []sourceChange
+	var edits []typed.FileEdit
 	for _, batch := range batches {
+		edits = append(edits, batch.Edits...)
 		for _, edit := range batch.Edits {
 			path := sourcePath{Absolute: edit.Path, Provided: edit.Path}
 			if rel, err := filepath.Rel(cwd, edit.Path); err == nil {
@@ -261,21 +254,17 @@ func (cmd *mainCmd) emitRenameBatches(cwd string, opts *options, batches []renam
 			}
 			changes = append(changes, sourceChange{
 				Path: path, Original: edit.Original, Modified: edit.Modified,
-				Comments: []string{batch.Summary},
 			})
 		}
 	}
-	if err := cmd.emitChanges(opts, changes); err != nil {
+	if err := validateFileEdits(edits); err != nil {
 		return err
 	}
-	logOut := io.Discard
-	if opts.Verbose {
-		logOut = cmd.Stdout
+	if err := validateRenderedEdits(edits); err != nil {
+		return err
 	}
-	logger := log.New(logOut, "", 0)
-	for _, batch := range batches {
-		logger.Printf("%s: patched %d identifier(s) in %d file(s)",
-			batch.Root, batch.Identifiers, len(batch.Edits))
+	if err := cmd.emitChanges(opts, changes); err != nil {
+		return err
 	}
 	return nil
 }

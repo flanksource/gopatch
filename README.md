@@ -14,6 +14,7 @@ refactoring and restyling.
 - [Usage](#usage)
   - [Commands](#commands)
     - [Inspecting the source tree](#inspecting-the-source-tree)
+    - [Finding symbol references](#finding-symbol-references)
     - [Commands that generate a patch](#commands-that-generate-a-patch)
     - [Commands that use type information](#commands-that-use-type-information)
   - [Options](#options)
@@ -231,6 +232,7 @@ These subcommands take the change as arguments instead.
 ```
 gopatch patch          [options]                   [pattern...]
 gopatch tree                                       [pattern...]
+gopatch ref            <symbol>
 
 gopatch rename struct  <Old> <New>                 [pattern...]
 gopatch rename type    <Old> <New>                 [pattern...]
@@ -288,6 +290,19 @@ gopatch tree ./model/user.go
 gopatch tree --private=false --methods=true --functions=true --fields=false --variables=false --tests=false ./...
 ```
 
+### Finding symbol references
+
+`gopatch ref` resolves a package-level declaration, field, or method with Go type information and prints its definitions and uses as a Clicky tree grouped by package and file. Each location includes its line, column, and trimmed source line. Method results include linked interface methods and their concrete implementations.
+
+```shell
+gopatch ref User
+gopatch ref User.Name --package model
+gopatch ref store.User.Name
+gopatch ref ./internal/store:User.Name --consumers ../services
+```
+
+The command searches the owning module, requiring modules in the active `go.work`, and consumer modules selected through `.gopatch.yml`, `--consumers`, or `--consumers-from`. All searched modules must type-check. A dotted target such as `store.User` can mean either `User` in package `store` or field/method `User` on type `store`; when both exist, gopatch reports both candidates and asks for a package or path-qualified target.
+
 ### Naming the target
 
 Every command above takes its target as a dotted name, and every one of them
@@ -318,13 +333,7 @@ $ gopatch edit field User.ID --type UUID ./...
 `--package <clause>` is the older spelling of a package-name qualifier and still
 works; giving both is refused rather than resolved by precedence.
 
-For the commands that generate a patch the qualifier does two jobs: it says
-which declaration is meant, *and* it scopes the rewrite to that package. An
-unqualified `edit field User.ID` over a tree where two packages declare `User`
-would otherwise change both. An import path qualifier on
-`rename struct|type|func` additionally does the work of `--import`: naming a
-package by path says that is its identity everywhere, so consumers move with the
-declaration.
+For commands that generate a patch, the qualifier selects and scopes the syntactic match. For typed renames, it identifies the exact declaration; references in the module, active Go workspace, and selected consumer modules move with it.
 
 `add struct|func|method` are the exception — they never take a qualified name,
 because their `<file.go>` argument already says which package the new
@@ -332,40 +341,22 @@ declaration goes into.
 
 ### Commands that generate a patch
 
-`rename struct|type|func|package|import`, `add field|param`, `delete field` and
-`edit field|func` build a gopatch program from their arguments and run it
-through the engine described in the rest of this document. `--print-patch`
-writes that program to stdout instead of applying it, which is the way to see
-exactly what a command is about to do.
+`add field|param`, `delete field` and `edit field|func` build a gopatch program from their arguments and run it through the engine described in the rest of this document. `--print-patch` writes that program to stdout instead of applying it.
 
 ```shell
-$ gopatch rename struct HTTPClient Client --package http --print-patch
+$ gopatch add field User.Enabled bool --package model --print-patch
 @@
 @@
- package http
+ type User struct {
 
--HTTPClient
-+Client
++Enabled bool
 ```
 
-`--package` is needed there only because `--print-patch` was given no paths to
-infer the declaring package from.
-
-They rewrite the declaration and every reference in the declaring package. Pass
-`--import <path>` to also rewrite qualified references in packages that import
-it. The declaring package is inferred from the given paths; qualify the target,
-or pass `--package`, when it cannot be inferred or the name is declared in more
-than one.
-
-Because these match by name rather than by type, they work on code that does not
-compile — but a local variable that happens to share the name is rewritten too,
-so review with `--diff` first. Two limits are worth knowing, and both are
-reported rather than silently ignored: a signature change does not update call
-sites, and gopatch cannot add the first import to a file that has none.
+These syntactic commands work on code that does not compile, but match by name rather than type. Review them with `--diff` when scope is not obvious.
 
 ### Commands that use type information
 
-`rename field`, `rename method`, `move`, `delete struct|type|func|method`,
+`ref`, every `rename` command, `move`, `delete struct|type|func|method`,
 `add struct|func|method`, `edit method`, `edit func --content` and `replace`
 cannot be expressed as a patch. A patch matching `x.Name` would rewrite every
 type's `Name`; a patch cannot delete a declaration at all, because its
@@ -384,12 +375,22 @@ $ gopatch rename field User.Name Title -d ./...
 renames the declaration, every `u.Name` on a `User`, and every `User{Name: ...}`
 key, in every package of the module — and leaves another type's `Name` alone.
 
-`rename field` and `rename method` can extend that exact type-aware sweep to other modules. Pass `--consumers <dir>` more than once, or list search directories one per line in `--consumers-from <file>`. Gopatch recursively finds modules whose `go.mod` requires the producer module, type-checks all of them, computes every producer and consumer edit, and writes only after the entire set succeeds:
+Every rename and move automatically includes requiring modules from the active `go.work`. Pass `--consumers <dir>` more than once, list search directories one per line in `--consumers-from <file>`, or configure search roots in `.gopatch.yml`. Gopatch recursively finds modules whose `go.mod` requires the producer module; `rename import` instead finds modules containing the exact old import path, including unrelated third-party paths.
 
 ```shell
 gopatch rename field User.Name Title --consumers ../services --consumers ../tools ./...
 gopatch rename method Client.Do Send --consumers-from repos.txt --diff ./...
 ```
+
+Project configuration at the producer module root overrides user configuration, including an empty consumer list. When the project file is absent, gopatch reads `~/.gopatch.yml`:
+
+```yaml
+consumers:
+  - ../consumer-repos
+  - ~/go/src/github.com/example
+```
+
+Configured paths are relative to the configuration file. `~/` is expanded, symlinks are canonicalized, duplicates are removed, and missing roots or unknown YAML keys fail before refactoring. Supplying either consumer CLI flag replaces configured roots; an explicit CLI search that finds no matching module is an error, while configured roots with no match are a successful no-op. Active `go.work` consumers are always unioned in.
 
 Consumer source is resolved against the producer version its module currently requires. Updating that requirement is a separate dependency-management step; local `replace` directives and `go.work` files continue to control which producer source `go/packages` sees.
 
@@ -408,6 +409,16 @@ gopatch move method file.go:Client.Close internal/client/close.go
 A named type carries all of its receiver methods. A method moved alone must remain in its receiver's package. Empty source files are removed, a missing destination directory becomes a package named after that directory, and an existing destination file must declare the target package.
 
 Before writing, gopatch renders and type-checks the complete producer-and-consumer overlay. It refuses destination name collisions, import cycles, private dependencies that would become inaccessible, incompatible test/build contexts, partial `init` ownership changes, cgo files, and unsafe grouped constants. `--dry-run` prints paths, package changes, declaration and reference counts, and file create/update/delete counts without source content; `--diff` prints the full patch. The two modes are mutually exclusive.
+
+As edits are planned, rename and move commands print Clicky-formatted lines to stderr in every output mode, keeping stdout clean for diffs and source output:
+
+```text
+✏️ target update old/user.go
+➕ target create new/user.go
+✏️ consumer example.com/app update app/main.go
+```
+
+These are planned changes and can appear before a later validation failure. Default-mode writes remain transactional: after the full overlay validates, either every target and consumer file is installed or the original set is restored.
 
 In exchange they need the module to compile. If it does not, they report the
 build errors and change nothing. A few more consequences:
