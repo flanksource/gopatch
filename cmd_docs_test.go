@@ -241,7 +241,7 @@ func TestRootHasTopLevelCommands(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{
 		"patch", "rename", "add", "delete", "edit", "replace", "move",
-		"tree", "install", "version",
+		"tree", "ref", "install", "version",
 		"patches", "metavariables", "examples",
 	}, got)
 }

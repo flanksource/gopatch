@@ -26,7 +26,7 @@ Names are counted from the **right**, because an import path carries dots of its
 | `-v`, `--verbose` | Report per file whether it was patched. |
 | `--skip-generated` | Skip files with a generated-code header. |
 | `--skip-import-processing` | Do not run `goimports` over the result. |
-| `--print-patch` | *Syntactic commands only.* Print the generated gopatch program instead of applying it. |
+| `--print-patch` | *Syntactic add/delete/edit commands only.* Print the generated gopatch program instead of applying it. |
 
 `move` shares `--diff` but not the other transformation flags; it provides `--dry-run` for a compact move summary and documents its own options below.
 
@@ -40,9 +40,24 @@ gopatch tree ./model/user.go
 
 `tree` renders packages, Go files, and package-level declarations with source line numbers using Clicky's tree output and ANSI colors on terminals. Function and method nodes include parameter names and types plus their starting and ending lines; callable names, punctuation, parameter names, and parameter types use distinct syntax colors. Methods are nested below their receiver type, or below a receiver-specific `methods` node when the type is outside the inspected file. It defaults to `./...`, accepts the same file and directory patterns as transformation commands, and parses syntax without loading types so it works on code that does not compile. Test files are excluded by default and included with `--tests=true`. Imports are omitted; structs, interfaces, named types, constants, variables, functions, and methods are shown in source order.
 
+## ref
+
+```shell
+gopatch ref User
+gopatch ref User.Name --package model
+gopatch ref store.User.Name
+gopatch ref ./internal/store:User.Name --consumers ../services
+```
+
+`ref` resolves a package-level declaration, field, or method with Go type information and renders its definitions and uses as a Clicky tree grouped by package and file. Every leaf includes the exact line, column, and trimmed source line. Methods include linked interface methods and their concrete implementations.
+
+The owning module, requiring modules in the active `go.work`, configured consumers, and consumers selected with repeatable `--consumers` or `--consumers-from` are searched. Every selected module must type-check. The command is read-only and does not accept transformation flags such as `--diff` or `--print-only`.
+
+Symbol kind is inferred. If a dotted target such as `store.User` matches both a package-qualified declaration and a member, `ref` fails with both candidates and path-qualified suggestions instead of choosing one. Local variables, imports, package names, and builtins are not valid targets.
+
 ## rename
 
-### Syntactic — works on code that does not compile
+### Type-aware — needs affected modules to compile
 
 ```shell
 gopatch rename package http            httpclient      ./http
@@ -50,16 +65,18 @@ gopatch rename import  example.com/old example.com/new ./...
 gopatch rename struct  HTTPClient      Client          ./...
 gopatch rename type    Duration        Interval        ./...
 gopatch rename func    doWork          Work            ./...
+gopatch rename field   User.Name      Title           ./...
+gopatch rename method  '*Client.Do'   Send            ./...
 ```
 
-`struct`, `type` and `func` rewrite the declaration and every reference **in the declaring package**. To reach importers:
+Every rename is type-aware and rewrites exact references in the module, active Go workspace, and selected consumer modules:
 
 ```shell
-gopatch rename func New NewClient --import example.com/http ./...
-gopatch rename func New NewClient --import example.com/http --qualifier httpc ./...
+gopatch rename func New NewClient --consumers ../services ./...
+gopatch rename func New NewClient --consumers-from repos.txt ./...
 ```
 
-`--qualifier` is the name importing files use when it is not the package name.
+Explicit import aliases remain unchanged. Typed renames do not accept the old `--print-patch`, `--import`, or `--qualifier` flags; use `--diff` for a preview.
 
 `rename import` rewrites the path and, when the package name changes with it, every `old.X` selector:
 
@@ -71,22 +88,17 @@ gopatch rename import example.com/http example.com/client ./...
 gopatch rename import example.com/go-yaml gopkg.in/yaml.v3 --name yaml --to-name yaml ./...
 ```
 
-Because these match by name, a local variable that happens to share it is rewritten too. Review with `-d`, or read the program with `--print-patch`.
-
-### Type-aware — needs the module to compile
-
-```shell
-gopatch rename field  User.Name    Title ./...
-gopatch rename method '*Client.Do' Send  ./...
-gopatch rename field  User.Name    Title --consumers ../services ./...
-gopatch rename method Client.Do    Send  --consumers-from repos.txt ./...
-```
+Local variables that merely share the declaration name are left unchanged.
 
 `rename field` moves the declaration, every `x.Field` selector on that type, and every key in a keyed composite literal of it, together, in one pass over the whole module. A field of the same name on another type is left alone.
 
 `rename method` renames the method, the interface method it implements, and every other implementation of that interface. It refuses when the interface is declared outside the module.
 
-`--consumers <dir>` is repeatable and recursively discovers other modules whose `go.mod` requires the producer module. `--consumers-from <file>` reads the same search roots one per line. Both flags are limited to `rename field` and `rename method`; all selected modules must type-check, and no file is written until every edit has been prepared. Consumer code is resolved against the producer version it currently requires.
+`--consumers <dir>` is repeatable and recursively discovers other modules whose `go.mod` requires the producer module. `--consumers-from <file>` reads the same search roots one per line. Both apply to every rename and move; `rename import` instead discovers modules containing the exact old import path. All selected modules must type-check, and no file is written until every edit has been prepared.
+
+The same roots may be configured in `<module>/.gopatch.yml` or `~/.gopatch.yml` under `consumers`. Project config replaces home config, CLI flags replace configured roots, and active `go.work` consumers are always unioned in. Paths are relative to the config file, `~/` expands to the user home, and invalid keys or missing paths fail before refactoring.
+
+Rename and move commands print planned `target` and `consumer` create/update/delete lines to stderr in every mode. They may precede a later overlay validation error; successful default-mode writes are transactional.
 
 ## move
 
@@ -214,7 +226,7 @@ To replace a whole body rather than part of one, use `edit … --content`.
 
 `--import` means two different things depending on the command, and both are worth knowing:
 
-- On the syntactic renames and `delete field`: the import path of the **declaring** package, which extends the rewrite to qualified references in packages that import it.
+- On `delete field`: the import path of the **declaring** package, which extends the syntactic rewrite to qualified references in packages that import it.
 - On `add param`, `edit … --params/--results/--content`, and `replace`: an import the **new source** needs, as `path` or `qualifier=path`. Repeat for more than one. Imports the file already has are used automatically.
 
 ## Exit behavior
