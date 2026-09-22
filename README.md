@@ -13,6 +13,7 @@ refactoring and restyling.
   - [Next steps](#next-steps)
 - [Usage](#usage)
   - [Commands](#commands)
+    - [Inspecting the source tree](#inspecting-the-source-tree)
     - [Commands that generate a patch](#commands-that-generate-a-patch)
     - [Commands that use type information](#commands-that-use-type-information)
   - [Options](#options)
@@ -86,7 +87,7 @@ built rather than reporting `unknown`. It installs into `$GOBIN`, or
 `$(go env GOPATH)/bin` when that is unset; pass `INSTALL_BIN=<dir>` to put it
 somewhere else.
 
-Building from source requires Go 1.23 or newer.
+Building from source requires Go 1.26.1 or newer.
 
 ## Your first patch
 
@@ -229,6 +230,7 @@ These subcommands take the change as arguments instead.
 
 ```
 gopatch patch          [options]                   [pattern...]
+gopatch tree                                       [pattern...]
 
 gopatch rename struct  <Old> <New>                 [pattern...]
 gopatch rename type    <Old> <New>                 [pattern...]
@@ -274,6 +276,17 @@ They are served by two engines, and each command's `--help` says which one it
 uses. Both support `--diff` and in-place rewriting. Commands that transform
 existing files also support `--print-only`; `move` uses `--dry-run` for a
 compact relocation summary instead.
+
+### Inspecting the source tree
+
+`gopatch tree` prints a Clicky tree of package nodes, their Go files, and each package-level declaration with its source line, using ANSI colors on terminal output. Functions and methods include parameter names and types plus their starting and ending lines; callable names, punctuation, parameter names, and parameter types use distinct syntax colors. Methods are nested below their receiver type; when the receiver is declared outside the inspected file, they are nested below a receiver-specific `methods` node. It parses syntax without loading types, so it also works when a module is mid-refactor and does not compile. Paths accept the same files, directories, and `./...` suffix as transformation commands; with no path it inspects `./...`. Test files are excluded unless `--tests=true` is set.
+
+```shell
+gopatch tree
+gopatch tree ./internal/...
+gopatch tree ./model/user.go
+gopatch tree --private=false --methods=true --functions=true --fields=false --variables=false --tests=false ./...
+```
 
 ### Naming the target
 
