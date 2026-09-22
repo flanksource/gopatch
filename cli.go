@@ -59,6 +59,7 @@ const (
 
 	_synNewName = `<new>              the replacement name, a plain identifier: Title`
 	_synPattern = `<pattern>...       files or directories to change: ./... or ./internal/http`
+	_synInspect = `<pattern>...       files or directories to inspect: ./... or ./internal/http`
 	_synFile    = `<file.go>          one Go file in this module: ./config/options.go`
 	_synType    = `<type>             any Go type expression: string, *http.Client, 'map[string][]byte'`
 	_synParams  = `--params '...'     a parameter list, parentheses optional: 'ctx context.Context, n int'`
@@ -140,7 +141,8 @@ func (cmd *mainCmd) newRootCommand() (*cobra.Command, *options) {
 			"`gopatch patch` applies a patch file. The other commands take the change " +
 			"as arguments instead, so the common mechanical refactorings need no patch " +
 			"at all: see `gopatch rename --help`, `move`, `add`, `delete`, `edit` and " +
-			"`replace`. `gopatch install` writes the agent skills this binary carries.\n\n" +
+			"`replace`. `gopatch tree` inspects the package and declaration structure. " +
+			"`gopatch install` writes the agent skills this binary carries.\n\n" +
 			"Patches may still be applied by the root command, but that is deprecated " +
 			"and will be removed in " + _rootPatchRemovalVersion + "; use `gopatch patch`.\n\n" +
 			_patternDesc,
@@ -205,6 +207,7 @@ func (cmd *mainCmd) subcommands() []*cobra.Command {
 		cmd.newEditCommand(),
 		cmd.newReplaceCommand(),
 		cmd.newMoveCommand(),
+		cmd.newTreeCommand(),
 		cmd.newInstallCommand(),
 		cmd.newVersionCommand(),
 	}, cmd.newDocTopics()...)
