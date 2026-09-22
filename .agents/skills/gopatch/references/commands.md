@@ -30,6 +30,16 @@ Names are counted from the **right**, because an import path carries dots of its
 
 `move` shares `--diff` but not the other transformation flags; it provides `--dry-run` for a compact move summary and documents its own options below.
 
+## tree
+
+```shell
+gopatch tree
+gopatch tree ./internal/...
+gopatch tree ./model/user.go
+```
+
+`tree` renders packages, Go files, and package-level declarations with source line numbers using Clicky's tree output and ANSI colors on terminals. Function and method nodes include parameter names and types plus their starting and ending lines; callable names, punctuation, parameter names, and parameter types use distinct syntax colors. Methods are nested below their receiver type, or below a receiver-specific `methods` node when the type is outside the inspected file. It defaults to `./...`, accepts the same file and directory patterns as transformation commands, and parses syntax without loading types so it works on code that does not compile. Test files are excluded by default and included with `--tests=true`. Imports are omitted; structs, interfaces, named types, constants, variables, functions, and methods are shown in source order.
+
 ## rename
 
 ### Syntactic — works on code that does not compile

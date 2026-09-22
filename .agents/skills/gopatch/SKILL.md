@@ -17,7 +17,7 @@ command -v gopatch || go install github.com/uber-go/gopatch@latest
 
 That gets the patch engine, which has been in releases since 0.4.0. On a released binary it is spelled `gopatch -p rules.patch ./...`, without the `patch` subcommand.
 
-The `patch`, `rename`, `move`, `add`, `delete`, `edit`, `replace` and `install` subcommands used below are **not in a release yet**; they live in the [flanksource fork](https://github.com/flanksource/gopatch). Build them from a checkout:
+The `patch`, `tree`, `rename`, `move`, `add`, `delete`, `edit`, `replace` and `install` subcommands used below are **not in a release yet**; they live in the [flanksource fork](https://github.com/flanksource/gopatch). Build them from a checkout:
 
 ```shell
 git clone https://github.com/flanksource/gopatch && cd gopatch && make install
@@ -29,6 +29,7 @@ git clone https://github.com/flanksource/gopatch && cd gopatch && make install
 
 | The change you want | Command |
 |---|---|
+| Inspect packages, files, and declarations with line numbers | `gopatch tree ./...` |
 | Rename a struct or any named type | `gopatch rename struct HTTPClient Client ./...`<br>`gopatch rename type Duration Interval ./...` |
 | Rename a function, with its calls | `gopatch rename func doWork Work ./...` |
 | …and in packages that import it | add `--import example.com/pkg` (`--qualifier` if they alias it) |
