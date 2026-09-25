@@ -66,13 +66,13 @@ sed  -i    's/\boidcTokenExpiring(/OIDCTokenExpiring(/g'        clientcmd/mccont
 # inside the declaring package
 gopatch rename func verifyPassed VerifyPassed ./pkg/ai/agent
 
-# plus every importing package
-gopatch rename func ResolveModelSelectors Resolve --import github.com/flanksource/captain/pkg/ai ./...
+# exact declaration plus every typed reference
+gopatch rename func github.com/flanksource/captain/pkg/ai.ResolveModelSelectors Resolve ./...
 ```
 
 **What the text version risked:** the trailing `(` in the pattern is there to avoid false hits, and it means every use of the function *as a value* — `f := ai.ResolveModelSelectors`, a struct field holding it, a `map[string]func()` entry — is skipped. The file list is hand-assembled again. `s/verifyPassed(verdicts)/…/` is narrower still: it only matches the call that passes an argument named `verdicts`.
 
-This is a syntactic command, so it works mid-refactor on a package that does not compile.
+This is a typed command, so the module must compile and same-named local variables remain unchanged.
 
 ---
 
@@ -109,11 +109,11 @@ rg -l 'models\.EntityBindingCache' pkg --glob '*.go' | xargs perl -pi -e 's/mode
 **gopatch:**
 
 ```shell
-gopatch rename struct EntityCache        Entity        --import github.com/flanksource/captain/pkg/models ./...
-gopatch rename struct EntityBindingCache EntityBinding --import github.com/flanksource/captain/pkg/models ./...
+gopatch rename struct github.com/flanksource/captain/pkg/models.EntityCache        Entity        ./...
+gopatch rename struct github.com/flanksource/captain/pkg/models.EntityBindingCache EntityBinding ./...
 ```
 
-**What the text version risked:** overlapping names make the *order* of the two sweeps load-bearing, which is a bug waiting for the day someone adds `EntityCacheEntry`. gopatch matches the identifier as a token, not a substring, and `--import` picks up files that alias the package to something other than `models`.
+**What the text version risked:** overlapping names make the *order* of the two sweeps load-bearing, which is a bug waiting for the day someone adds `EntityCacheEntry`. Gopatch resolves the exact type object and picks up references through any package alias.
 
 ---
 
@@ -373,8 +373,8 @@ Visible throughout the corpus, and all of it goes away:
 | The sed you were about to write | Instead |
 |---|---|
 | `s/\.OldField/.NewField/` | `gopatch rename field T.OldField NewField ./...` |
-| `s/oldFunc(/newFunc(/` | `gopatch rename func oldFunc newFunc [--import path] ./...` |
-| `s/OldType/NewType/` | `gopatch rename struct\|type OldType NewType [--import path] ./...` |
+| `s/oldFunc(/newFunc(/` | `gopatch rename func oldFunc newFunc ./...` |
+| `s/OldType/NewType/` | `gopatch rename struct\|type OldType NewType ./...` |
 | `s#"old/path"#"new/path"#` | `gopatch rename import old/path new/path ./...` |
 | `'1s/^package a$/package b/'` | `gopatch rename package a b ./dir` |
 | `'NNN,MMMd'` | `gopatch delete func\|struct\|type\|method Name ./...` |
