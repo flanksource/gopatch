@@ -17,6 +17,43 @@ func Workspace(dir string) ([]Module, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read workspace producer module: %w", err)
 	}
+	modules, err := workspaceModules(dir)
+	if err != nil {
+		return nil, err
+	}
+	var consumers []Module
+	for _, module := range modules {
+		parsed, err := readModule(module.Root)
+		if err != nil {
+			return nil, err
+		}
+		if parsed.Path != producer.Path && moduleRequires(parsed.file, producer.Path) {
+			consumers = append(consumers, module)
+		}
+	}
+	return consumers, nil
+}
+
+// WorkspaceImport finds active workspace modules importing one exact path.
+func WorkspaceImport(dir, importPath string) ([]Module, error) {
+	modules, err := workspaceModules(dir)
+	if err != nil {
+		return nil, err
+	}
+	var found []Module
+	for _, module := range modules {
+		imports, err := moduleImports(module.Root, importPath)
+		if err != nil {
+			return nil, err
+		}
+		if imports {
+			found = append(found, module)
+		}
+	}
+	return found, nil
+}
+
+func workspaceModules(dir string) ([]Module, error) {
 	command := exec.Command("go", "env", "GOWORK")
 	command.Dir = dir
 	output, err := command.Output()
@@ -47,7 +84,7 @@ func Workspace(dir string) ([]Module, error) {
 		if err != nil {
 			return nil, err
 		}
-		if module.Path == producer.Path || !moduleRequires(module.file, producer.Path) || seen[module.Root] {
+		if seen[module.Root] {
 			continue
 		}
 		seen[module.Root] = true
