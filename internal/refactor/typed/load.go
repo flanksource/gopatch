@@ -82,6 +82,10 @@ type FileEdit struct {
 
 	// Mode is retained for moves and used when a new file is created.
 	Mode os.FileMode
+
+	// ModuleRoot and ModulePath identify the module that owns this edit.
+	ModuleRoot string
+	ModulePath string
 }
 
 // Program is a loaded, type-checked module ready to be refactored.
@@ -383,10 +387,12 @@ func (p *Program) Edits() ([]FileEdit, error) {
 			continue
 		}
 		edits = append(edits, FileEdit{
-			Path:     path,
-			Original: original,
-			Modified: buf.Bytes(),
-			Mode:     info.Mode().Perm(),
+			Path:       path,
+			Original:   original,
+			Modified:   buf.Bytes(),
+			Mode:       info.Mode().Perm(),
+			ModuleRoot: p.root,
+			ModulePath: p.modulePath,
 		})
 	}
 	return edits, nil

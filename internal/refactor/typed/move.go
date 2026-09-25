@@ -68,8 +68,8 @@ type movePiece struct {
 	identifier token.Pos
 }
 
-// ValidateMove type-checks a rendered change set through a go/packages overlay.
-func ValidateMove(root string, edits []FileEdit) error {
+// ValidateEdits type-checks a rendered change set through a go/packages overlay.
+func ValidateEdits(root string, edits []FileEdit) error {
 	overlay := make(map[string][]byte, len(edits))
 	for _, edit := range edits {
 		if edit.Delete {
@@ -87,10 +87,10 @@ func ValidateMove(root string, edits []FileEdit) error {
 		Env: append(os.Environ(), "GO111MODULE=on"),
 	}, "./...")
 	if err != nil {
-		return fmt.Errorf("validate move in %v: %w", root, err)
+		return fmt.Errorf("validate change in %v: %w", root, err)
 	}
 	if err := packageErrors(loaded); err != nil {
-		return fmt.Errorf("the move would not compile in %v: %w", root, err)
+		return fmt.Errorf("the change would not compile in %v: %w", root, err)
 	}
 	return nil
 }
@@ -273,8 +273,8 @@ func (p *Program) moveFile(source string, dest moveDestination) (MoveResult, err
 		return MoveResult{}, err
 	}
 	edits = append(edits,
-		FileEdit{Path: abs, Original: original, Delete: true, Mode: mode},
-		FileEdit{Path: dest.path, Modified: modified, Create: true, Mode: mode},
+		FileEdit{Path: abs, Original: original, Delete: true, Mode: mode, ModuleRoot: p.root, ModulePath: p.modulePath},
+		FileEdit{Path: dest.path, Modified: modified, Create: true, Mode: mode, ModuleRoot: p.root, ModulePath: p.modulePath},
 	)
 
 	result := MoveResult{
@@ -380,7 +380,7 @@ func (p *Program) moveSymbol(sym *Symbol, dest moveDestination, structOnly bool)
 		if err != nil {
 			return MoveResult{}, err
 		}
-		edits = append(edits, FileEdit{Path: path, Original: original, Delete: true, Mode: mode})
+		edits = append(edits, FileEdit{Path: path, Original: original, Delete: true, Mode: mode, ModuleRoot: p.root, ModulePath: p.modulePath})
 	}
 	if dest.file == nil {
 		modified, err := p.renderFile(dest.pkgPath, destination, nil)
@@ -391,7 +391,7 @@ func (p *Program) moveSymbol(sym *Symbol, dest moveDestination, structOnly bool)
 		if err != nil {
 			return MoveResult{}, err
 		}
-		edits = append(edits, FileEdit{Path: dest.path, Modified: modified, Create: true, Mode: info.Mode().Perm()})
+		edits = append(edits, FileEdit{Path: dest.path, Modified: modified, Create: true, Mode: info.Mode().Perm(), ModuleRoot: p.root, ModulePath: p.modulePath})
 	}
 
 	result := MoveResult{

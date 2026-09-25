@@ -260,3 +260,17 @@ func (s *Symbol) Name() string {
 	}
 	return ""
 }
+
+// IsStruct reports whether the resolved named type has a struct underlying type.
+func (s *Symbol) IsStruct() bool {
+	for obj := range s.objs {
+		typeName, ok := obj.(*types.TypeName)
+		if !ok {
+			continue
+		}
+		if _, ok := typeName.Type().Underlying().(*types.Struct); ok {
+			return true
+		}
+	}
+	return false
+}

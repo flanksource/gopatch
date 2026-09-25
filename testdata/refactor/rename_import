@@ -6,16 +6,24 @@ removed automatically by the engine.
 -- args --
 rename import example.com/old/thing example.com/new/gadget
 
--- want.patch --
-# rewrite import example.com/old/thing -> example.com/new/gadget and references thing.X -> gadget.X
-@@
-var thing, X identifier
-@@
--import thing "example.com/old/thing"
-+import "example.com/new/gadget"
+-- go.mod --
+module example.com
 
--thing.X
-+gadget.X
+go 1.23
+
+-- old/thing/value.in.go --
+package thing
+
+type Value struct{}
+
+func New() Value { return Value{} }
+
+-- new/gadget/value.in.go --
+package gadget
+
+type Value struct{}
+
+func New() Value { return Value{} }
 
 -- app.in.go --
 package app
