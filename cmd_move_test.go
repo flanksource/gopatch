@@ -90,7 +90,7 @@ var _ = Describe("move", func() {
 			"old/value.go": "package old\n\nconst Value = 1\n",
 			"new/doc.go":   "package new\n",
 		})
-		cmd, stdout, _ := moveCommand(root)
+		cmd, stdout, stderr := moveCommand(root)
 		require.NoError(GinkgoT(), cmd.Run([]string{"move", "file", "old/value.go", "new", "--dry-run"}))
 
 		assertFileContains(filepath.Join(root, "old", "value.go"), "package old")
@@ -99,6 +99,22 @@ var _ = Describe("move", func() {
 		assert.Contains(GinkgoT(), stdout.String(), "1 create")
 		assert.Contains(GinkgoT(), stdout.String(), "1 delete")
 		assert.NotContains(GinkgoT(), stdout.String(), "const Value = 1")
+		assert.Contains(GinkgoT(), stderr.String(), "target delete old/value.go")
+		assert.Contains(GinkgoT(), stderr.String(), "target create new/value.go")
+	})
+
+	It("prints Clicky-style target changes to stderr in preview modes", func() {
+		root := moveFixture(map[string]string{
+			"old/value.go": "package old\n\nconst Value = 1\n",
+			"new/doc.go":   "package new\n",
+		})
+		cmd, stdout, stderr := moveCommand(root)
+		require.NoError(GinkgoT(), cmd.Run([]string{"move", "file", "old/value.go", "new", "--diff"}))
+
+		assert.Contains(GinkgoT(), stderr.String(), "➖ target delete old/value.go")
+		assert.Contains(GinkgoT(), stderr.String(), "➕ target create new/value.go")
+		assert.Contains(GinkgoT(), stdout.String(), "--- ")
+		assert.NotContains(GinkgoT(), stdout.String(), "target create")
 	})
 
 	It("refuses combining dry-run with a full diff", func() {
@@ -159,6 +175,24 @@ var _ = Describe("move", func() {
 		require.NoError(GinkgoT(), cmd.Run([]string{"move", "file", "old/value.go", "new/value.go", "--consumers", workspace}))
 
 		assertFileContains(filepath.Join(workspace, "consumer", "app", "app.go"), `"example.com/producer/new"`, "new.Value")
+	})
+
+	It("updates consumer modules discovered from project config", func() {
+		workspace := GinkgoT().TempDir()
+		writeMoveFiles(workspace, map[string]string{
+			"producer/go.mod":       "module example.com/producer\n\ngo 1.23\n",
+			"producer/.gopatch.yml": "consumers:\n  - ../consumer\n",
+			"producer/old/value.go": "package old\n\nconst Value = 1\n",
+			"consumer/go.mod":       "module example.com/consumer\n\ngo 1.23\n\nrequire example.com/producer v0.0.0\n\nreplace example.com/producer => ../producer\n",
+			"consumer/app/app.go":   "package app\n\nimport \"example.com/producer/old\"\n\nconst Value = old.Value\n",
+		})
+
+		producer := filepath.Join(workspace, "producer")
+		cmd, _, stderr := moveCommand(producer)
+		require.NoError(GinkgoT(), cmd.Run([]string{"move", "file", "old/value.go", "new/value.go"}))
+
+		assertFileContains(filepath.Join(workspace, "consumer", "app", "app.go"), `"example.com/producer/new"`, "new.Value")
+		assert.Contains(GinkgoT(), stderr.String(), "consumer example.com/consumer update app/app.go")
 	})
 
 	It("moves independent variables and constants", func() {
@@ -240,7 +274,7 @@ var _ = Describe("move", func() {
 		path := filepath.Join(root, "value.go")
 		require.NoError(GinkgoT(), os.WriteFile(path, []byte("package old\n"), 0o644))
 
-		err := validateMoveEdits([]typed.FileEdit{{Path: path, Original: []byte("package before\n"), Modified: []byte("package after\n")}})
+		err := validateFileEdits([]typed.FileEdit{{Path: path, Original: []byte("package before\n"), Modified: []byte("package after\n")}})
 
 		require.Error(GinkgoT(), err)
 		assert.Contains(GinkgoT(), err.Error(), "changed after it was loaded")
@@ -369,10 +403,11 @@ func writeMoveFiles(root string, files map[string]string) {
 func moveCommand(root string) (*mainCmd, *bytes.Buffer, *bytes.Buffer) {
 	var stdout, stderr bytes.Buffer
 	return &mainCmd{
-		Stdin:  bytes.NewReader(nil),
-		Stdout: &stdout,
-		Stderr: &stderr,
-		Getwd:  func() (string, error) { return root, nil },
+		Stdin:       bytes.NewReader(nil),
+		Stdout:      &stdout,
+		Stderr:      &stderr,
+		Getwd:       func() (string, error) { return root, nil },
+		UserHomeDir: func() (string, error) { return root, nil },
 	}, &stdout, &stderr
 }
 

@@ -35,6 +35,7 @@ import (
 	"strings"
 
 	"github.com/pkg/diff"
+	"github.com/uber-go/gopatch/internal/refactor/typed"
 	"go.uber.org/multierr"
 	"golang.org/x/tools/imports"
 )
@@ -213,6 +214,15 @@ func (cmd *mainCmd) emitChanges(opts *options, changes []sourceChange) error {
 		if !bytes.Equal(current, change.Original) {
 			return fmt.Errorf("%v changed after it was loaded; nothing was written", change.Path.Absolute)
 		}
+	}
+	if !opts.Diff && !opts.Print {
+		edits := make([]typed.FileEdit, 0, len(changes))
+		for _, change := range changes {
+			edits = append(edits, typed.FileEdit{
+				Path: change.Path.Absolute, Original: change.Original, Modified: change.Modified,
+			})
+		}
+		return applyFileEdits(edits)
 	}
 
 	for _, change := range changes {
