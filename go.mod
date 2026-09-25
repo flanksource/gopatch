@@ -17,6 +17,7 @@ require (
 	golang.org/x/mod v0.37.0
 	golang.org/x/term v0.44.0
 	golang.org/x/tools v0.47.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -126,7 +127,6 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/sourcemap.v1 v1.0.5 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/api v0.36.1 // indirect
 	k8s.io/apiextensions-apiserver v0.36.1 // indirect
 	k8s.io/apimachinery v0.36.2 // indirect
