@@ -273,10 +273,11 @@ func runRefactorTest(t *testing.T, path string) {
 
 		var out, errBuf bytes.Buffer
 		cmd := mainCmd{
-			Stdin:  bytes.NewReader(nil),
-			Stdout: &out,
-			Stderr: &errBuf,
-			Getwd:  func() (string, error) { return dir, nil },
+			Stdin:       bytes.NewReader(nil),
+			Stdout:      &out,
+			Stderr:      &errBuf,
+			Getwd:       func() (string, error) { return dir, nil },
+			UserHomeDir: func() (string, error) { return dir, nil },
 		}
 		err = cmd.Run(append(append([]string{}, ta.Args...), extra...))
 		return dir, out.String(), errBuf.String(), err

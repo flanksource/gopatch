@@ -127,7 +127,7 @@ func (cmd *mainCmd) runTree(c *cobra.Command, patterns []string, opts treeOption
 			detail:   displayDirectory(cwd, pkg.directory),
 			children: pkg.files,
 		}
-		if _, err := fmt.Fprintln(c.OutOrStdout(), renderSourceTree(node, shouldUseTreeColors(c.OutOrStdout()))); err != nil {
+		if _, err := fmt.Fprintln(c.OutOrStdout(), renderSourceTree(node, shouldUseColors(c.OutOrStdout()))); err != nil {
 			return err
 		}
 	}
@@ -377,7 +377,7 @@ func renderSourceTree(node sourceTreeNode, colors bool) string {
 	return tree.String()
 }
 
-func shouldUseTreeColors(out io.Writer) bool {
+func shouldUseColors(out io.Writer) bool {
 	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
 		return false
 	}

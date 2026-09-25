@@ -15,11 +15,18 @@ func TestTypedRenameConsumerFlags(t *testing.T) {
 	t.Parallel()
 
 	root := mustRootCommand(t)
-	for _, args := range [][]string{{"rename", "field"}, {"rename", "method"}} {
+	for _, args := range [][]string{
+		{"rename", "package"}, {"rename", "import"},
+		{"rename", "struct"}, {"rename", "type"}, {"rename", "func"},
+		{"rename", "field"}, {"rename", "method"},
+	} {
 		command, _, err := root.Find(args)
 		require.NoError(t, err)
 		assert.NotNil(t, command.Flags().Lookup("consumers"))
 		assert.NotNil(t, command.Flags().Lookup("consumers-from"))
+		assert.Nil(t, command.Flags().Lookup("print-patch"))
+		assert.Nil(t, command.Flags().Lookup("import"))
+		assert.Nil(t, command.Flags().Lookup("qualifier"))
 	}
 
 	command, _, err := root.Find([]string{"delete", "method"})
@@ -72,7 +79,7 @@ func TestConsumerRootsRejectsAnEmptyList(t *testing.T) {
 	require.NoError(t, os.WriteFile(list, []byte("\n  \n"), 0o644))
 	cmd := mainCmd{Getwd: func() (string, error) { return root, nil }}
 
-	_, err := cmd.consumerRoots(&typedRenameOptions{ConsumersFrom: list})
+	_, err := cmd.consumerRoots(root, &consumerOptions{ConsumersFrom: list})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at least one non-empty search directory")
 }

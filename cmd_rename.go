@@ -1,110 +1,68 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"github.com/uber-go/gopatch/internal/refactor"
-	"github.com/uber-go/gopatch/internal/refactor/patchgen"
 	"github.com/uber-go/gopatch/internal/refactor/typed"
 )
-
-// renameOptions holds the flags the identifier rename subcommands accept.
-type renameOptions struct {
-	opOptions
-
-	// Package is the declaring package's package clause. Inferred from the
-	// target files when unset.
-	Package string
-
-	// ImportPath is the declaring package's import path. When unset, only the
-	// declaring package is updated.
-	ImportPath string
-
-	// Qualifier is the name importing packages use for ImportPath. Defaults to
-	// the package name.
-	Qualifier string
-}
-
-func addRenameScopeFlags(fs *pflag.FlagSet, opts *renameOptions) {
-	fs.StringVar(&opts.Package, "package", "",
-		"Package clause of the package that declares the symbol. "+
-			"Inferred from the given paths when omitted.")
-	fs.StringVar(&opts.ImportPath, "import", "",
-		"Import path of the declaring package. When given, qualified references "+
-			"in importing packages are rewritten too.")
-	fs.StringVar(&opts.Qualifier, "qualifier", "",
-		"Name importing packages use for --import. Defaults to the package name.")
-}
 
 func (cmd *mainCmd) newRenameCommand() *cobra.Command {
 	rename := &cobra.Command{
 		Use:   "rename",
 		Short: "Rename a package, import path, type, function, field, or method.",
 		Long: "Rename a package, import path, type, function, field, or method.\n\n" +
-			"`package`, `import`, `struct`, `type` and `func` are syntactic: gopatch " +
-			"matches by name, so they work on code that does not compile, but a local " +
-			"variable that happens to share the name is rewritten too. Review with " +
-			"--diff, or inspect the generated program with --print-patch.\n\n" +
-			"`field` and `method` use type information instead, because a name match " +
-			"cannot tell one type's Name from another's. They need the module to " +
-			"compile, and they rewrite the whole module rather than one package." +
+			"Every rename uses Go type information, updates exact references across the " +
+			"module and selected consumers, and requires the affected modules to compile." +
 			syntaxNote(_synName, _synMember, _synPkgQual, _synDirQual, _synNewName, _synPattern),
 		Example: examples(
-			"# syntactic: name-matched, works on code that does not compile",
+			"# exact typed renames across the module and selected consumers",
 			"gopatch rename struct  HTTPClient      Client              ./...",
 			"gopatch rename type    Duration        Interval            ./...",
 			"gopatch rename func    doWork          Work                ./...",
 			"gopatch rename package http            httpclient          ./http",
 			"gopatch rename import  example.com/old example.com/new     ./...",
 			"",
-			"# type-aware: exact, needs the module to compile",
+			"# members are resolved against their declaring type",
 			"gopatch rename field   User.Name       Title               ./...",
 			"gopatch rename method  '*Client.Do'    Send                ./...",
 		),
 	}
 
 	rename.AddCommand(
-		cmd.newRenameIdentCommand("struct", patchgen.KindStruct,
+		cmd.newRenameIdentCommand("struct", typed.KindType, true,
 			"Rename a struct and every reference to it.",
 			examples(
 				"# the declaration and every reference in the declaring package",
 				"gopatch rename struct HTTPClient Client ./http",
 				"",
-				"# also rewrite http.HTTPClient wherever the package is imported",
-				"gopatch rename struct HTTPClient Client --import example.com/http ./...",
+				"# also rewrite consumers found under sibling repositories",
+				"gopatch rename struct HTTPClient Client --consumers ../services ./...",
 				"",
 				"# when two packages declare the name, say which one you mean",
 				"gopatch rename struct Config Options --package server ./...",
 				"gopatch rename struct server.Config Options ./...",
 				"gopatch rename struct ./internal/server:Config Options ./...",
 				"",
-				"# an import path qualifier does the work of both --package and",
-				"# --import: it names the package everywhere, so consumers move too",
+				"# an import path qualifier selects the declaring package exactly",
 				"gopatch rename struct example.com/http.HTTPClient Client ./...",
-				"",
-				"# read the generated patch instead of applying it; --package",
-				"# is required here, because there are no paths to infer it from",
-				"gopatch rename struct HTTPClient Client --package http --print-patch",
 			)),
-		cmd.newRenameIdentCommand("type", patchgen.KindType,
+		cmd.newRenameIdentCommand("type", typed.KindType, false,
 			"Rename a named type and every reference to it.",
 			examples(
 				"# any named type: an interface, an alias target, a defined type",
 				"gopatch rename type Duration Interval ./...",
 				"",
-				"# also rewrite timeutil.Duration in importing packages",
-				"gopatch rename type Duration Interval --import example.com/timeutil ./...",
+				"# preview declarations and consumers without writing",
+				"gopatch rename type Duration Interval --diff ./...",
 			)),
-		cmd.newRenameIdentCommand("func", patchgen.KindFunc,
+		cmd.newRenameIdentCommand("func", typed.KindFunc, false,
 			"Rename a function and every reference to it.",
 			examples(
 				"# the declaration, every call, and every use as a value",
 				"gopatch rename func doWork Work ./...",
 				"",
-				"# consumers refer to it as httpc.New, not http.New",
-				"gopatch rename func New NewClient --import example.com/http --qualifier httpc ./...",
+				"# explicit import aliases remain unchanged in consumers",
+				"gopatch rename func New NewClient --consumers ../services ./...",
 			)),
 		cmd.newRenamePackageCommand(),
 		cmd.newRenameImportCommand(),
@@ -227,171 +185,41 @@ func (cmd *mainCmd) runRenameSymbol(arg string, kind typed.Kind, opts *typedRena
 // gopatch has no type information, so renaming a struct, a named type and a
 // function are the same identifier rewrite; the noun only sharpens the help text
 // and the reported description.
-func (cmd *mainCmd) newRenameIdentCommand(noun string, kind patchgen.DeclKind, short, example string) *cobra.Command {
-	var opts renameOptions
+func (cmd *mainCmd) newRenameIdentCommand(noun string, kind typed.Kind, structOnly bool, short, example string) *cobra.Command {
+	var opts typedRenameOptions
 
 	c := &cobra.Command{
 		Use:   noun + " <old> <new> [pattern...]",
 		Short: short,
 		Long: short + "\n\n" +
-			"Rewrites the declaration and every reference in the declaring package. " +
-			"Pass --import to also rewrite qualified references in packages that " +
-			"import it.",
+			"Rewrites the exact declaration and every typed reference in the module, " +
+			"active Go workspace, and configured consumer modules." + _typedLongSuffix,
 		Example: example,
 		Args:    cobra.MinimumNArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.runRenameIdent(noun, kind, &opts, args)
+			return cmd.runRenameIdent(noun, kind, structOnly, &opts, args)
 		},
 	}
 
-	addOpFlags(c.Flags(), &opts.opOptions)
-	addRenameScopeFlags(c.Flags(), &opts)
+	addTypedRenameFlags(c.Flags(), &opts)
 
 	return c
 }
 
-func (cmd *mainCmd) runRenameIdent(noun string, kind patchgen.DeclKind, opts *renameOptions, args []string) error {
+func (cmd *mainCmd) runRenameIdent(noun string, kind typed.Kind, structOnly bool, opts *typedRenameOptions, args []string) error {
 	target, err := refactor.ParseTarget(noun, args[0], 1)
 	if err != nil {
 		return err
 	}
-	to, patterns := args[1], args[2:]
-
-	pkg, importPath, err := cmd.identScope(noun, target, opts)
+	to, err := refactor.ParseIdent("new name", args[1])
 	if err != nil {
 		return err
 	}
-
-	if pkg == "" {
-		// Nothing named the declaring package, so read it out of the target
-		// files, narrowed to the path the target named if it named one.
-		search, err := cmd.targetSearch(noun, target, patterns)
-		if err != nil {
-			return err
-		}
-		if pkg, err = refactor.InferPackage(noun, search.Files, target); err != nil {
-			return err
-		}
+	query, err := cmd.query(noun, kind, target, &opts.typedOptions)
+	if err != nil {
+		return err
 	}
-
-	return cmd.runOperation(patchgen.RenameIdent{
-		Kind: kind,
-		From: target.Name(),
-		To:   to,
-		Scope: patchgen.Scope{
-			Package:    pkg,
-			ImportPath: importPath,
-			Qualifier:  opts.Qualifier,
-		},
-	}, &opts.opOptions, patterns)
-}
-
-// identScope merges a qualified target with the flags that name the same scope.
-//
-// An import-path qualifier does the work of both --package and --import: naming
-// a package by path says that is the package's identity everywhere, so consumers
-// move with the declaration. A bare package name scopes the change to the
-// declaring package only, as --package does.
-func (cmd *mainCmd) identScope(arg string, t refactor.Target, opts *renameOptions) (pkg, importPath string, err error) {
-	switch {
-	case t.Qualifier != "" && opts.Package != "":
-		return "", "", fmt.Errorf(
-			"%s is already qualified with %q, so --package %q is ambiguous; drop one",
-			arg, t.Qualifier, opts.Package)
-	case t.ImportPath() != "" && opts.ImportPath != "":
-		return "", "", fmt.Errorf(
-			"%s already names the import path %q, so --import %q is ambiguous; drop one",
-			arg, t.ImportPath(), opts.ImportPath)
-	}
-
-	if pkg, err = t.PackageName(arg); err != nil {
-		return "", "", err
-	}
-	if pkg == "" {
-		pkg = opts.Package
-	}
-
-	importPath = t.ImportPath()
-	if importPath == "" {
-		importPath = opts.ImportPath
-	}
-	return pkg, importPath, nil
-}
-
-func (cmd *mainCmd) newRenamePackageCommand() *cobra.Command {
-	var opts opOptions
-
-	c := &cobra.Command{
-		Use:   "package <old> <new> [pattern...]",
-		Short: "Rename a package clause.",
-		Long: "Rename a package clause.\n\n" +
-			"This changes the `package` line only. Packages that import this one " +
-			"keep working, because their qualifier follows the import path; use " +
-			"`gopatch rename import` to change that.",
-		Example: examples(
-			"# rewrite \"package http\" to \"package httpclient\" in every file there",
-			"gopatch rename package http httpclient ./http",
-			"",
-			"# the directory and import path are separate; change them too",
-			"git mv http httpclient",
-			"gopatch rename import example.com/http example.com/httpclient ./...",
-		),
-		Args: cobra.MinimumNArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
-			op := patchgen.RenamePackage{From: args[0], To: args[1]}
-			return cmd.runOperation(op, &opts, args[2:])
-		},
-	}
-
-	addOpFlags(c.Flags(), &opts)
-
-	return c
-}
-
-func (cmd *mainCmd) newRenameImportCommand() *cobra.Command {
-	var (
-		opts     opOptions
-		fromName string
-		toName   string
-	)
-
-	c := &cobra.Command{
-		Use:     "import <old-path> <new-path> [pattern...]",
-		Aliases: []string{"import-path"},
-		Short:   "Rewrite an import path, and the qualifier when it changes with it.",
-		Long: "Rewrite an import path.\n\n" +
-			"When the package name implied by the new path differs from the old " +
-			"one, every qualified reference moves with it. When the name is " +
-			"unchanged, only the import line changes.\n\n" +
-			"Imports left unused by the rewrite are removed automatically.",
-		Example: examples(
-			"# same package name at both paths: only the import line changes",
-			"gopatch rename import example.com/old/http example.com/new/http ./...",
-			"",
-			"# different name: every http.X becomes client.X as well",
-			"gopatch rename import example.com/http example.com/client ./...",
-			"",
-			"# spell the names out when a path's last segment is not the package name",
-			"gopatch rename import example.com/go-yaml gopkg.in/yaml.v3 --name yaml --to-name yaml ./...",
-		),
-		Args: cobra.MinimumNArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
-			op := patchgen.RenameImport{
-				FromPath: args[0],
-				ToPath:   args[1],
-				FromName: fromName,
-				ToName:   toName,
-			}
-			return cmd.runOperation(op, &opts, args[2:])
-		},
-	}
-
-	addOpFlags(c.Flags(), &opts)
-	c.Flags().StringVar(&fromName, "name", "",
-		"Package name the importing files currently use. "+
-			"Derived from the old path when omitted.")
-	c.Flags().StringVar(&toName, "to-name", "",
-		"Package name to use after the rewrite. Derived from the new path when omitted.")
-
-	return c
+	return cmd.runTypedRename(typedRenameRequest{
+		Options: opts, Patterns: args[2:], Query: query, To: to, StructOnly: structOnly,
+	})
 }
