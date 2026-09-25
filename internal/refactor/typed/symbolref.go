@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-// SymbolRef identifies a field or method across go/packages loads.
+// SymbolRef identifies a declaration across go/packages loads.
 type SymbolRef struct {
 	ImportPath string
 	Recv       string
@@ -26,14 +26,17 @@ func (s *Symbol) Refs() []SymbolRef {
 	refs := make(map[SymbolRef]bool)
 	for obj := range s.objs {
 		owner := symbolOwner(s, obj)
-		if obj.Pkg() == nil || owner == nil {
+		if obj.Pkg() == nil {
 			continue
 		}
-		refs[SymbolRef{
+		ref := SymbolRef{
 			ImportPath: obj.Pkg().Path(),
-			Recv:       owner.Obj().Name(),
 			Name:       obj.Name(),
-		}] = true
+		}
+		if owner != nil {
+			ref.Recv = owner.Obj().Name()
+		}
+		refs[ref] = true
 	}
 
 	out := make([]SymbolRef, 0, len(refs))
@@ -68,7 +71,7 @@ func (p *Program) ResolveRefs(q RefQuery) *Symbol {
 				continue
 			}
 			sym.objs[obj] = true
-			if !hasOwner(sym.owners, owner) {
+			if owner != nil && !hasOwner(sym.owners, owner) {
 				sym.owners = append(sym.owners, owner)
 			}
 			if sym.Pkg == "" {
@@ -145,6 +148,13 @@ func (p *Program) typesPackages() map[string][]*types.Package {
 }
 
 func lookupRef(pkg *types.Package, kind Kind, ref SymbolRef) (types.Object, *types.Named) {
+	if kind == KindType || kind == KindFunc || kind == KindVar || kind == KindConst {
+		obj := pkg.Scope().Lookup(ref.Name)
+		if matchesKind(obj, kind) {
+			return obj, nil
+		}
+		return nil, nil
+	}
 	ownerObj := pkg.Scope().Lookup(ref.Recv)
 	if ownerObj == nil {
 		return nil, nil
@@ -171,6 +181,21 @@ func lookupRef(pkg *types.Package, kind Kind, ref SymbolRef) (types.Object, *typ
 		}
 	}
 	return nil, nil
+}
+
+func matchesKind(obj types.Object, kind Kind) bool {
+	switch obj.(type) {
+	case *types.TypeName:
+		return kind == KindType
+	case *types.Func:
+		return kind == KindFunc
+	case *types.Var:
+		return kind == KindVar
+	case *types.Const:
+		return kind == KindConst
+	default:
+		return false
+	}
 }
 
 func symbolOwner(sym *Symbol, obj types.Object) *types.Named {

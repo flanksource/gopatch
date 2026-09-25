@@ -3,14 +3,10 @@ Renames a struct and every reference to it in the declaring package.
 -- args --
 rename struct HTTPClient Client --package http
 
--- want.patch --
-# rename struct HTTPClient -> Client in package http (declaring package only; pass --import to update consumers)
-@@
-@@
- package http
+-- go.mod --
+module example.com/http
 
--HTTPClient
-+Client
+go 1.23
 
 -- client.in.go --
 package http
@@ -43,4 +39,4 @@ func (c *Client) Timeout() int {
 }
 
 -- want.stderr --
-client.go:rename struct HTTPClient -> Client in package http (declaring package only; pass --import to update consumers)
+✏️ target update client.go

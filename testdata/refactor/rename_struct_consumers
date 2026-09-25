@@ -1,30 +1,14 @@
-Renames a struct in its declaring package and in a package that imports it.
-
-The generated program has two changes: one scoped to the package clause, one
-scoped to files importing the path. This is the examples/destutter.patch idiom.
+Renames a struct in its declaring package and in another package in the module.
 
 -- args --
-rename struct HTTPClient Client --package http --import example.com/http
+rename struct HTTPClient Client --package http
 
--- want.patch --
-# rename struct HTTPClient -> Client in package http and in consumers of example.com/http
-@@
-@@
- package http
+-- go.mod --
+module example.com/project
 
--HTTPClient
-+Client
+go 1.23
 
-# rename struct HTTPClient -> Client in package http and in consumers of example.com/http
-@@
-var http identifier
-@@
- import http "example.com/http"
-
--http.HTTPClient
-+http.Client
-
--- client.in.go --
+-- http/client.in.go --
 package http
 
 type HTTPClient struct{}
@@ -33,7 +17,7 @@ func New() *HTTPClient {
 	return &HTTPClient{}
 }
 
--- client.out.go --
+-- http/client.out.go --
 package http
 
 type Client struct{}
@@ -42,19 +26,19 @@ func New() *Client {
 	return &Client{}
 }
 
--- consumer.in.go --
+-- app/consumer.in.go --
 package app
 
-import "example.com/http"
+import "example.com/project/http"
 
 func run(c *http.HTTPClient) *http.HTTPClient {
 	return c
 }
 
--- consumer.out.go --
+-- app/consumer.out.go --
 package app
 
-import "example.com/http"
+import "example.com/project/http"
 
 func run(c *http.Client) *http.Client {
 	return c
