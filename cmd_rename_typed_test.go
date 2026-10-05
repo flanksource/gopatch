@@ -1,21 +1,70 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 
+	"github.com/flanksource/uir/indexer"
+	"github.com/flanksource/uir/storage"
 	. "github.com/onsi/ginkgo/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+func indexedRenameDatabase(roots ...string) string {
+	GinkgoHelper()
+	dsn := filepath.Join(GinkgoT().TempDir(), "uir.db")
+	database, err := storage.UirDB(context.Background(), storage.DBOptions{DSN: dsn})
+	require.NoError(GinkgoT(), err)
+	engine, err := indexer.New(database)
+	require.NoError(GinkgoT(), err)
+	for _, root := range roots {
+		_, err = engine.IndexModules(context.Background(), indexer.ModuleOptions{Path: root, IncludeTests: true})
+		require.NoError(GinkgoT(), err)
+	}
+	sqlDB, err := database.DB()
+	require.NoError(GinkgoT(), err)
+	require.NoError(GinkgoT(), sqlDB.Close())
+	return dsn
+}
+
 var _ = Describe("typed top-level rename", func() {
+	It("requires an existing UIR index before changing a symbol", func() {
+		GinkgoT().Setenv("GOWORK", "off")
+		root := moveFixture(map[string]string{
+			"model/user.go": "package model\n\ntype User struct{}\nvar Current User\n",
+		})
+		cmd, _, _ := moveCommand(root)
+		err := cmd.Run([]string{"rename", "struct", "User", "Person", "./..."})
+		require.Error(GinkgoT(), err)
+		assert.Contains(GinkgoT(), err.Error(), "--uir-dsn is required")
+		assertFileContains(filepath.Join(root, "model", "user.go"), "type User struct{}")
+	})
+
+	It("uses the existing UIR index and refuses a stale snapshot before writing", func() {
+		GinkgoT().Setenv("GOWORK", "off")
+		root := moveFixture(map[string]string{
+			"model/user.go": "package model\n\ntype User struct{}\nvar Current User\n",
+		})
+		dsn := indexedRenameDatabase(root)
+		cmd, _, _ := moveCommand(root)
+		require.NoError(GinkgoT(), cmd.Run([]string{"rename", "struct", "User", "Person", "--uir-dsn", dsn, "--diff", "./..."}))
+		writeMoveFiles(root, map[string]string{"model/user.go": "package model\n\ntype User struct{}\nvar Current User\nvar Added User\n"})
+		cmd, _, _ = moveCommand(root)
+		err := cmd.Run([]string{"rename", "struct", "User", "Person", "--uir-dsn", dsn, "./..."})
+		require.Error(GinkgoT(), err)
+		assert.Contains(GinkgoT(), err.Error(), "stale")
+		assertFileContains(filepath.Join(root, "model", "user.go"), "type User struct{}")
+	})
 	It("renames only references bound to the selected struct", func() {
+		GinkgoT().Setenv("GOWORK", "off")
 		root := moveFixture(map[string]string{
 			"model/user.go": "package model\n\ntype User struct{}\n\nfunc Build() User { return User{} }\n\nfunc shadow() { User := 1; _ = User }\n",
 		})
+		dsn := indexedRenameDatabase(root)
 		cmd, _, stderr := moveCommand(root)
-		require.NoError(GinkgoT(), cmd.Run([]string{"rename", "struct", "User", "Person", "./..."}))
+		require.NoError(GinkgoT(), cmd.Run([]string{"rename", "struct", "User", "Person", "--uir-dsn", dsn, "./..."}))
 
 		contents, err := os.ReadFile(filepath.Join(root, "model", "user.go"))
 		require.NoError(GinkgoT(), err)
@@ -26,6 +75,7 @@ var _ = Describe("typed top-level rename", func() {
 	})
 
 	It("rejects a non-struct target for rename struct", func() {
+		GinkgoT().Setenv("GOWORK", "off")
 		root := moveFixture(map[string]string{
 			"model/value.go": "package model\n\ntype Value interface{ String() string }\n",
 		})
@@ -36,12 +86,14 @@ var _ = Describe("typed top-level rename", func() {
 	})
 
 	It("prints planned edits to stderr in print-only mode", func() {
+		GinkgoT().Setenv("GOWORK", "off")
 		root := moveFixture(map[string]string{
 			"model/user.go": "package model\n\ntype User struct{}\n",
 		})
+		dsn := indexedRenameDatabase(root)
 		cmd, stdout, stderr := moveCommand(root)
 		require.NoError(GinkgoT(), cmd.Run([]string{
-			"rename", "struct", "User", "Person", "--print-only", "./...",
+			"rename", "struct", "User", "Person", "--print-only", "--uir-dsn", dsn, "./...",
 		}))
 		assert.Contains(GinkgoT(), stdout.String(), "type Person struct")
 		assert.NotContains(GinkgoT(), stdout.String(), "target update")
@@ -59,8 +111,12 @@ var _ = Describe("typed top-level rename", func() {
 			"consumer/app/app.go":    "package app\n\nimport \"example.com/producer/model\"\n\nvar User model.User\n",
 		})
 		producer := filepath.Join(workspace, "producer")
+		canonicalWorkspace, err := filepath.EvalSymlinks(workspace)
+		require.NoError(GinkgoT(), err)
+		GinkgoT().Setenv("GOWORK", filepath.Join(canonicalWorkspace, "go.work"))
+		dsn := indexedRenameDatabase(producer, filepath.Join(workspace, "consumer"))
 		cmd, _, _ := moveCommand(producer)
-		require.NoError(GinkgoT(), cmd.Run([]string{"rename", "struct", "User", "Person", "./..."}))
+		require.NoError(GinkgoT(), cmd.Run([]string{"rename", "struct", "User", "Person", "--uir-dsn", dsn, "./..."}))
 
 		assertFileContains(filepath.Join(workspace, "consumer", "app", "app.go"), "model.Person")
 	})

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
 
+	"github.com/flanksource/uir/query"
 	"github.com/spf13/pflag"
 	"github.com/uber-go/gopatch/internal/refactor/consumers"
 	"github.com/uber-go/gopatch/internal/refactor/typed"
@@ -19,11 +21,13 @@ const (
 type typedRenameOptions struct {
 	typedOptions
 	consumerOptions
+	referenceIndexOptions
 }
 
 func addTypedRenameFlags(fs *pflag.FlagSet, opts *typedRenameOptions) {
 	addTypedFlags(fs, &opts.typedOptions)
 	addConsumerFlags(fs, &opts.consumerOptions)
+	addReferenceIndexFlags(fs, &opts.referenceIndexOptions)
 }
 
 func addConsumerFlags(fs *pflag.FlagSet, opts *consumerOptions) {
@@ -81,9 +85,14 @@ func (cmd *mainCmd) runTypedRename(req typedRenameRequest) error {
 		return err
 	}
 	refs := expandRenameRefs(modules, req.Query.Kind, target)
+	locations, err := indexedReferences(context.Background(), req.Options.referenceIndexOptions, modules, refs, req.Query.Kind)
+	if err != nil {
+		return err
+	}
 	editable := editablePackages(modules)
 	batches, err := prepareRenameBatches(renamePreparation{
 		Modules: modules, Kind: req.Query.Kind, Target: target, Refs: refs,
+		Locations:        locations,
 		EditablePackages: editable, To: req.To, Cwd: cwd, ProducerFiles: allowed,
 	}, func(batch renameBatch) error {
 		return cmd.printPlannedEdits(batch.Edits, producer.Root())
@@ -195,6 +204,7 @@ type renamePreparation struct {
 	Kind             typed.Kind
 	Target           *typed.Symbol
 	Refs             []typed.SymbolRef
+	Locations        []query.ReferenceLocation
 	EditablePackages map[string]bool
 	To, Cwd          string
 	ProducerFiles    []string
@@ -208,10 +218,22 @@ func prepareRenameBatches(req renamePreparation, planned func(renameBatch) error
 			Kind: req.Kind, Refs: req.Refs, Desc: req.Target.Desc,
 			EditablePackages: req.EditablePackages,
 		})
+		positions := make([]typed.IndexedPosition, 0)
+		for _, location := range req.Locations {
+			if location.Location == module.Root {
+				positions = append(positions, typed.IndexedPosition{
+					File:      filepath.Join(location.Location, filepath.FromSlash(location.Path)),
+					StartByte: location.StartByte, EndByte: location.EndByte,
+				})
+			}
+		}
 		if !module.Program.HasSourceIdentifiers(sym) {
+			if len(positions) > 0 {
+				return nil, fmt.Errorf("UIR found references in %s that Go types did not resolve", module.Root)
+			}
 			continue
 		}
-		_, err := module.Program.Rename(sym, req.To)
+		_, err := module.Program.Rename(sym, req.To, positions)
 		if err != nil {
 			return nil, fmt.Errorf("prepare rename in %v: %w", module.Root, err)
 		}

@@ -28,7 +28,7 @@ const (
 
 	_typedLongSuffix = "\n\nThis command uses type information, so it changes exactly the " +
 		"references that mean the same symbol and leaves same-named members of other " +
-		"types alone. In exchange the module has to compile: if it does not, the " +
+		"types alone. Symbol renames require a current UIR index of the selected modules. The module has to compile: if it does not, the " +
 		"command reports the build errors and changes nothing."
 )
 
