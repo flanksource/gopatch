@@ -36,7 +36,7 @@ func TestResolveFieldRefsAcrossModules(t *testing.T) {
 	require.NotNil(t, consumerSym)
 	assert.True(t, consumer.HasSourceIdentifiers(consumerSym))
 
-	n, err := consumer.Rename(consumerSym, "Title")
+	n, err := renameUsingReferences(t, consumer, consumerSym, "Title")
 	require.NoError(t, err)
 	assert.Equal(t, 2, n)
 	edits, err := consumer.Edits()
@@ -76,9 +76,9 @@ func TestMethodRefsExpandAcrossConsumerAssignments(t *testing.T) {
 		Kind: KindMethod, Refs: refs, Desc: sym.Desc, EditablePackages: owned,
 	})
 
-	_, err = producer.Rename(producerSym, "Store")
+	_, err = renameUsingReferences(t, producer, producerSym, "Store")
 	require.NoError(t, err)
-	_, err = consumer.Rename(consumerSym, "Store")
+	_, err = renameUsingReferences(t, consumer, consumerSym, "Store")
 	require.NoError(t, err)
 
 	producerEdits, err := producer.Edits()
@@ -102,7 +102,7 @@ func TestResolvedMethodRefsStillRefuseUnselectedPackages(t *testing.T) {
 		EditablePackages: map[string]bool{"example.com/methods/store": true},
 	})
 
-	_, err := p.Rename(sym, "Text")
+	_, err := renameUsingReferences(t, p, sym, "Text")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fmt.Stringer.String")
 	assert.Contains(t, err.Error(), "outside this module")

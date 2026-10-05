@@ -46,6 +46,7 @@ var Default = User{Name: "Ada"}
 		assert.Equal(GinkgoT(), Reference{
 			Package:    "example.com/ref/model",
 			File:       expectedFile,
+			Offset:     35,
 			Line:       4,
 			Column:     2,
 			Definition: true,
