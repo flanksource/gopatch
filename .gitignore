@@ -4,3 +4,5 @@
 /cover.html
 /dist
 /changes.*.txt
+go.work
+go.work.sum
