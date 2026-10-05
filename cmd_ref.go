@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/flanksource/clicky/api"
 	"github.com/flanksource/clicky/api/icons"
+	"github.com/flanksource/uir/query"
 	"github.com/spf13/cobra"
 	"github.com/uber-go/gopatch/internal/refactor"
 	"github.com/uber-go/gopatch/internal/refactor/typed"
@@ -16,6 +18,7 @@ import (
 type refOptions struct {
 	Package string
 	consumerOptions
+	referenceIndexOptions
 }
 
 type referencePackage struct {
@@ -31,7 +34,7 @@ func (cmd *mainCmd) newRefCommand() *cobra.Command {
 		Short: "Show the definitions and references for a Go symbol.",
 		Long: "Show the definitions and references for one package-level Go symbol, grouped by package and file. " +
 			"The symbol kind is inferred from type information, and method references include linked interface and concrete methods. " +
-			"The owning module, active Go workspace, and configured consumers must type-check." +
+			"The owning module, active Go workspace, and configured consumers must type-check and have current UIR snapshots." +
 			syntaxNote(_synName, _synMember, _synPkgQual, _synDirQual),
 		Example: examples(
 			"gopatch ref User",
@@ -46,6 +49,7 @@ func (cmd *mainCmd) newRefCommand() *cobra.Command {
 	}
 	command.Flags().StringVar(&opts.Package, "package", "", _typedPackageDesc)
 	addConsumerFlags(command.Flags(), &opts.consumerOptions)
+	addReferenceIndexFlags(command.Flags(), &opts.referenceIndexOptions)
 	return command
 }
 
@@ -71,20 +75,17 @@ func (cmd *mainCmd) runRef(command *cobra.Command, target string, opts *refOptio
 		return err
 	}
 	refs := expandRenameRefs(modules, symbol.Kind, symbol)
-
-	var locations []typed.Reference
-	for _, module := range modules {
-		resolved := module.Program.ResolveRefs(typed.RefQuery{
-			Kind: symbol.Kind, Refs: refs, Desc: symbol.Desc,
-		})
-		if resolved == nil {
-			continue
+	indexed, err := indexedReferences(command.Context(), opts.referenceIndexOptions, modules, refs, symbol.Kind)
+	if err != nil {
+		return err
+	}
+	locations := make([]typed.Reference, 0, len(indexed))
+	for _, location := range indexed {
+		reference, err := indexedReference(location)
+		if err != nil {
+			return err
 		}
-		moduleRefs, refErr := module.Program.References(resolved)
-		if refErr != nil {
-			return fmt.Errorf("find references in %v: %w", module.Root, refErr)
-		}
-		locations = append(locations, moduleRefs...)
+		locations = append(locations, reference)
 	}
 	sortReferences(locations)
 
@@ -95,6 +96,32 @@ func (cmd *mainCmd) runRef(command *cobra.Command, target string, opts *refOptio
 	tree := buildReferenceTree(canonicalMovePath(cwd), symbol, locations, definitions, references)
 	_, err = fmt.Fprintln(command.OutOrStdout(), renderSourceTree(tree, shouldUseColors(command.OutOrStdout())))
 	return err
+}
+
+func indexedReference(location query.ReferenceLocation) (typed.Reference, error) {
+	path, content, err := indexedSource(location)
+	if err != nil {
+		return typed.Reference{}, err
+	}
+	line, column, start := 1, 1, 0
+	for offset := 0; offset < location.StartByte; offset++ {
+		if content[offset] == '\n' {
+			line++
+			column = 1
+			start = offset + 1
+		} else {
+			column++
+		}
+	}
+	end := len(content)
+	if index := bytes.IndexByte(content[location.StartByte:], '\n'); index >= 0 {
+		end = location.StartByte + index
+	}
+	return typed.Reference{
+		Package: location.PackagePath, File: path, Offset: location.StartByte,
+		Line: line, Column: column, Definition: location.Role == "definition",
+		SourceLine: strings.TrimSpace(string(content[start:end])),
+	}, nil
 }
 
 func (cmd *mainCmd) refQueries(target, packageName string) ([]typed.SymbolQuery, error) {
