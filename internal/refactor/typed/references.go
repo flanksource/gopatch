@@ -31,6 +31,7 @@ type SymbolRequest struct {
 type Reference struct {
 	Package    string
 	File       string
+	Offset     int
 	Line       int
 	Column     int
 	Definition bool
@@ -269,7 +270,7 @@ func (p *Program) appendReferenceGroup(pkg *decorator.Package, sym *Symbol, grou
 		}
 		seen[key] = true
 		*references = append(*references, Reference{
-			Package: pkg.PkgPath, File: df.path, Line: position.Line, Column: position.Column,
+			Package: pkg.PkgPath, File: df.path, Offset: position.Offset, Line: position.Line, Column: position.Column,
 			Definition: group.definition, SourceLine: line,
 		})
 	}

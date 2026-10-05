@@ -12,6 +12,7 @@ import (
 
 var _ = Describe("ref", func() {
 	It("pretty prints a definition and exact references", func() {
+		GinkgoT().Setenv("GOWORK", "off")
 		root := moveFixture(map[string]string{
 			"model/model.go": `package model
 
@@ -27,8 +28,9 @@ var Default = User{Name: "Ada"}
 `,
 		})
 
+		dsn := indexedRenameDatabase(root)
 		cmd, stdout, _ := moveCommand(root)
-		require.NoError(GinkgoT(), cmd.Run([]string{"ref", "User.Name", "--package", "model"}))
+		require.NoError(GinkgoT(), cmd.Run([]string{"ref", "User.Name", "--package", "model", "--uir-dsn", dsn}))
 
 		assert.Equal(GinkgoT(), "🔍\u00a0field\u00a0User.Name\u00a01 definition, 2 references\n"+
 			"╰── 📦\u00a0package\u00a0example.com/move/model\u00a0./model\n"+
@@ -49,8 +51,12 @@ var Default = User{Name: "Ada"}
 			"consumer/app/app.go":    "package app\n\nimport \"example.com/producer/model\"\n\nvar Current model.User\n",
 		})
 
+		canonicalWorkspace, err := filepath.EvalSymlinks(workspace)
+		require.NoError(GinkgoT(), err)
+		GinkgoT().Setenv("GOWORK", filepath.Join(canonicalWorkspace, "go.work"))
+		dsn := indexedRenameDatabase(filepath.Join(workspace, "producer"), filepath.Join(workspace, "consumer"))
 		cmd, stdout, _ := moveCommand(filepath.Join(workspace, "producer"))
-		require.NoError(GinkgoT(), cmd.Run([]string{"ref", "model.User"}))
+		require.NoError(GinkgoT(), cmd.Run([]string{"ref", "model.User", "--uir-dsn", dsn}))
 
 		assert.Contains(GinkgoT(), stdout.String(), "example.com/producer/model")
 		assert.Contains(GinkgoT(), stdout.String(), "example.com/consumer/app")
@@ -58,6 +64,7 @@ var Default = User{Name: "Ada"}
 	})
 
 	It("includes explicitly selected consumer modules", func() {
+		GinkgoT().Setenv("GOWORK", "off")
 		workspace := GinkgoT().TempDir()
 		writeMoveFiles(workspace, map[string]string{
 			"producer/go.mod":        "module example.com/producer\n\ngo 1.23\n",
@@ -66,8 +73,9 @@ var Default = User{Name: "Ada"}
 			"consumer/app/app.go":    "package app\n\nimport \"example.com/producer/model\"\n\nvar Current model.User\n",
 		})
 
+		dsn := indexedRenameDatabase(filepath.Join(workspace, "producer"), filepath.Join(workspace, "consumer"))
 		cmd, stdout, _ := moveCommand(filepath.Join(workspace, "producer"))
-		require.NoError(GinkgoT(), cmd.Run([]string{"ref", "model.User", "--consumers", workspace}))
+		require.NoError(GinkgoT(), cmd.Run([]string{"ref", "model.User", "--consumers", workspace, "--uir-dsn", dsn}))
 
 		assert.Contains(GinkgoT(), stdout.String(), "example.com/consumer/app")
 		assert.Contains(GinkgoT(), stdout.String(), "var Current model.User")
@@ -83,14 +91,19 @@ var Default = User{Name: "Ada"}
 			"consumer/app/app.go":    "package app\n\nconst Name = \"consumer\"\n",
 		})
 
+		canonicalWorkspace, err := filepath.EvalSymlinks(workspace)
+		require.NoError(GinkgoT(), err)
+		GinkgoT().Setenv("GOWORK", filepath.Join(canonicalWorkspace, "go.work"))
+		dsn := indexedRenameDatabase(filepath.Join(workspace, "producer"), filepath.Join(workspace, "consumer"))
 		cmd, stdout, _ := moveCommand(filepath.Join(workspace, "producer"))
-		require.NoError(GinkgoT(), cmd.Run([]string{"ref", "model.User"}))
+		require.NoError(GinkgoT(), cmd.Run([]string{"ref", "model.User", "--uir-dsn", dsn}))
 
 		assert.Contains(GinkgoT(), stdout.String(), "1 definition, 0 references")
 		assert.NotContains(GinkgoT(), stdout.String(), "example.com/consumer/app")
 	})
 
 	It("includes linked interface and concrete method references", func() {
+		GinkgoT().Setenv("GOWORK", "off")
 		root := moveFixture(map[string]string{
 			"runner/runner.go": `package runner
 
@@ -102,8 +115,9 @@ var _ Runner = Worker{}
 `,
 		})
 
+		dsn := indexedRenameDatabase(root)
 		cmd, stdout, _ := moveCommand(root)
-		require.NoError(GinkgoT(), cmd.Run([]string{"ref", "Worker.Run", "--package", "runner"}))
+		require.NoError(GinkgoT(), cmd.Run([]string{"ref", "Worker.Run", "--package", "runner", "--uir-dsn", dsn}))
 
 		assert.Contains(GinkgoT(), stdout.String(), "2 definitions, 1 reference")
 		assert.Contains(GinkgoT(), stdout.String(), "type Runner interface { Run() }")
@@ -112,6 +126,7 @@ var _ Runner = Worker{}
 	})
 
 	It("fails before printing when a symbol is ambiguous", func() {
+		GinkgoT().Setenv("GOWORK", "off")
 		root := moveFixture(map[string]string{
 			"first/value.go":  "package first\n\ntype Value struct{}\n",
 			"second/value.go": "package second\n\ntype Value struct{}\n",
