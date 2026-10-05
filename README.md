@@ -292,16 +292,17 @@ gopatch tree --private=false --methods=true --functions=true --fields=false --va
 
 ### Finding symbol references
 
-`gopatch ref` resolves a package-level declaration, field, or method with Go type information and prints its definitions and uses as a Clicky tree grouped by package and file. Each location includes its line, column, and trimmed source line. Method results include linked interface methods and their concrete implementations.
+`gopatch ref` resolves a package-level declaration, field, or method with Go type information, then reads its definitions and uses from an existing UIR index. It prints a Clicky tree grouped by package and file. Each location includes its line, column, and trimmed source line. Method results include linked interface methods and their concrete implementations.
 
 ```shell
-gopatch ref User
-gopatch ref User.Name --package model
-gopatch ref store.User.Name
-gopatch ref ./internal/store:User.Name --consumers ../services
+uir --dsn "$UIR_DSN" add --include-tests .
+gopatch ref User --uir-dsn "$UIR_DSN"
+gopatch ref User.Name --package model --uir-dsn "$UIR_DSN"
+gopatch ref store.User.Name --uir-dsn "$UIR_DSN"
+gopatch ref ./internal/store:User.Name --consumers ../services --uir-dsn "$UIR_DSN"
 ```
 
-The command searches the owning module, requiring modules in the active `go.work`, and consumer modules selected through `.gopatch.yml`, `--consumers`, or `--consumers-from`. All searched modules must type-check. A dotted target such as `store.User` can mean either `User` in package `store` or field/method `User` on type `store`; when both exist, gopatch reports both candidates and asks for a package or path-qualified target.
+The command searches the owning module, requiring modules in the active `go.work`, and consumer modules selected through `.gopatch.yml`, `--consumers`, or `--consumers-from`. Index each selected module with `uir --dsn "$UIR_DSN" add --include-tests <path>` before running it; use `reindex --include-tests <path>` after source changes. All searched modules must type-check and have complete, current UIR snapshots. `--uir-schema` selects a PostgreSQL schema when needed. A dotted target such as `store.User` can mean either `User` in package `store` or field/method `User` on type `store`; when both exist, gopatch reports both candidates and asks for a package or path-qualified target.
 
 ### Naming the target
 
@@ -369,17 +370,19 @@ These resolve the target with `go/types` and rewrite the source with
 [dave/dst], so they change exactly the references that mean the same symbol:
 
 ```shell
-$ gopatch rename field User.Name Title -d ./...
+$ gopatch rename field User.Name Title --uir-dsn "$UIR_DSN" -d ./...
 ```
 
 renames the declaration, every `u.Name` on a `User`, and every `User{Name: ...}`
 key, in every package of the module — and leaves another type's `Name` alone.
 
+Symbol renames (`struct`, `type`, `func`, `field`, and `method`) use the existing UIR index as the reference source. The index must contain every selected module with test files included. Gopatch verifies each snapshot and source hash before writing and refuses missing, stale, or incomplete coverage. It still uses Go type information for target resolution, collision checks, and method interface relationships. Package and import path renames use their existing separate flow.
+
 Every rename and move automatically includes requiring modules from the active `go.work`. Pass `--consumers <dir>` more than once, list search directories one per line in `--consumers-from <file>`, or configure search roots in `.gopatch.yml`. Gopatch recursively finds modules whose `go.mod` requires the producer module; `rename import` instead finds modules containing the exact old import path, including unrelated third-party paths.
 
 ```shell
-gopatch rename field User.Name Title --consumers ../services --consumers ../tools ./...
-gopatch rename method Client.Do Send --consumers-from repos.txt --diff ./...
+gopatch rename field User.Name Title --uir-dsn "$UIR_DSN" --consumers ../services --consumers ../tools ./...
+gopatch rename method Client.Do Send --uir-dsn "$UIR_DSN" --consumers-from repos.txt --diff ./...
 ```
 
 Project configuration at the producer module root overrides user configuration, including an empty consumer list. When the project file is absent, gopatch reads `~/.gopatch.yml`:
