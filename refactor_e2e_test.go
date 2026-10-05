@@ -22,12 +22,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"unicode"
 
+	"github.com/flanksource/uir/indexer"
+	"github.com/flanksource/uir/storage"
 	"github.com/rogpeppe/go-internal/txtar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -270,6 +273,21 @@ func runRefactorTest(t *testing.T, path string) {
 		dir = t.TempDir()
 		require.NoErrorf(t, txtar.Write(ta.archive, dir),
 			"could not write archive to %q", dir)
+		args := append([]string{}, ta.Args...)
+		if len(args) >= 2 && args[0] == "rename" && (args[1] == "struct" || args[1] == "type" || args[1] == "func" || args[1] == "field" || args[1] == "method") &&
+			(ta.WantError == "" || strings.Contains(ta.WantError, "which the given paths do not cover")) {
+			dsn := filepath.Join(t.TempDir(), "uir.db")
+			database, dbErr := storage.UirDB(context.Background(), storage.DBOptions{DSN: dsn})
+			require.NoError(t, dbErr)
+			engine, indexErr := indexer.New(database)
+			require.NoError(t, indexErr)
+			_, indexErr = engine.IndexModules(context.Background(), indexer.ModuleOptions{Path: dir, IncludeTests: true})
+			require.NoError(t, indexErr)
+			sqlDB, dbErr := database.DB()
+			require.NoError(t, dbErr)
+			require.NoError(t, sqlDB.Close())
+			args = append(args, "--uir-dsn", dsn)
+		}
 
 		var out, errBuf bytes.Buffer
 		cmd := mainCmd{
@@ -279,7 +297,7 @@ func runRefactorTest(t *testing.T, path string) {
 			Getwd:       func() (string, error) { return dir, nil },
 			UserHomeDir: func() (string, error) { return dir, nil },
 		}
-		err = cmd.Run(append(append([]string{}, ta.Args...), extra...))
+		err = cmd.Run(append(args, extra...))
 		return dir, out.String(), errBuf.String(), err
 	}
 

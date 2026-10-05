@@ -28,6 +28,24 @@ func load(t *testing.T, fixture string) *Program {
 	return p
 }
 
+func renameUsingReferences(t *testing.T, program *Program, symbol *Symbol, to string) (int, error) {
+	t.Helper()
+	if symbol.Kind == KindMethod {
+		program.linkMethodSet(symbol)
+	}
+	references, err := program.References(symbol)
+	if err != nil {
+		return 0, err
+	}
+	positions := make([]IndexedPosition, 0, len(references))
+	for _, reference := range references {
+		positions = append(positions, IndexedPosition{
+			File: reference.File, StartByte: reference.Offset, EndByte: reference.Offset + len(symbol.Name()),
+		})
+	}
+	return program.Rename(symbol, to, positions)
+}
+
 // modified returns the new contents of one file from a set of edits.
 func modified(t *testing.T, edits []FileEdit, base string) string {
 	t.Helper()
@@ -58,7 +76,7 @@ func TestRenameField(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "example.com/renamefield/user", sym.Pkg)
 
-	count, err := p.Rename(sym, "Title")
+	count, err := renameUsingReferences(t, p, sym, "Title")
 	require.NoError(t, err)
 
 	// The declaration, the method body, the constructor's literal, and the two
@@ -123,7 +141,7 @@ func TestRenameFieldRejectsCollision(t *testing.T) {
 	sym, err := p.Resolve(Query{Kind: KindField, Owner: "User", Name: "Name"})
 	require.NoError(t, err)
 
-	_, err = p.Rename(sym, "Age")
+	_, err = renameUsingReferences(t, p, sym, "Age")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `already has a field called "Age"`)
 }
@@ -220,7 +238,7 @@ func TestRenameMethodFollowsInterface(t *testing.T) {
 	sym, err := p.Resolve(Query{Kind: KindMethod, Owner: "File", Name: "Save"})
 	require.NoError(t, err)
 
-	count, err := p.Rename(sym, "Store")
+	count, err := renameUsingReferences(t, p, sym, "Store")
 	require.NoError(t, err)
 
 	// The interface method, both implementations, and the s.Save() call.
@@ -250,7 +268,7 @@ func TestRenameInterfaceMethodFollowsImplementations(t *testing.T) {
 	sym, err := p.Resolve(Query{Kind: KindMethod, Owner: "Saver", Name: "Save"})
 	require.NoError(t, err)
 
-	_, err = p.Rename(sym, "Store")
+	_, err = renameUsingReferences(t, p, sym, "Store")
 	require.NoError(t, err)
 
 	edits, err := p.Edits()
@@ -269,7 +287,7 @@ func TestRenameMethodRefusesOutsideModule(t *testing.T) {
 	sym, err := p.Resolve(Query{Kind: KindMethod, Owner: "Named", Name: "String"})
 	require.NoError(t, err)
 
-	_, err = p.Rename(sym, "Text")
+	_, err = renameUsingReferences(t, p, sym, "Text")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fmt.Stringer.String")
 	assert.Contains(t, err.Error(), "outside this module")
@@ -634,7 +652,7 @@ func TestLoadIgnoresGopathMode(t *testing.T) {
 	sym, err := p.Resolve(Query{Kind: KindField, Owner: "User", Name: "Name"})
 	require.NoError(t, err)
 
-	count, err := p.Rename(sym, "Title")
+	count, err := renameUsingReferences(t, p, sym, "Title")
 	require.NoError(t, err)
 	assert.Equal(t, 5, count, "the reference in the importing package was found")
 }
@@ -655,7 +673,7 @@ func TestLoadFindsTheModuleRootFromASubdirectory(t *testing.T) {
 	require.NoError(t, err)
 
 	// Standing in user/ must not hide the reference in consumer/.
-	count, err := p.Rename(sym, "Title")
+	count, err := renameUsingReferences(t, p, sym, "Title")
 	require.NoError(t, err)
 	assert.Equal(t, 5, count)
 }

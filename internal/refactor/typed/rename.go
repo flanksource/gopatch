@@ -11,8 +11,15 @@ import (
 	"golang.org/x/tools/refactor/satisfy"
 )
 
-// Rename renames every reference that denotes sym, reporting how many source
-// positions it changed.
+// IndexedPosition is one identifier location supplied by the UIR index.
+type IndexedPosition struct {
+	File      string
+	StartByte int
+	EndByte   int
+}
+
+// Rename rewrites the indexed positions for sym after checking each against Go
+// types, reporting how many source positions it changed.
 //
 // Because the target is a types.Object, this touches exactly the declaration
 // and its references — a field declaration, every x.Field selector on that
@@ -22,7 +29,10 @@ import (
 // Renaming a method also renames the interface methods it implements and their
 // other implementations, because renaming one half of that relationship
 // compiles the declaring package and breaks the assignment somewhere else.
-func (p *Program) Rename(sym *Symbol, to string) (int, error) {
+func (p *Program) Rename(sym *Symbol, to string, positions []IndexedPosition) (int, error) {
+	if len(positions) == 0 {
+		return 0, fmt.Errorf("no indexed positions for %s", sym.Desc)
+	}
 	if sym.Kind == KindMethod {
 		p.linkMethodSet(sym)
 		if err := p.checkRenamable(sym); err != nil {
@@ -33,6 +43,11 @@ func (p *Program) Rename(sym *Symbol, to string) (int, error) {
 		return 0, err
 	}
 
+	indexed := make(map[string]IndexedPosition, len(positions))
+	matched := make(map[string]bool, len(positions))
+	for _, position := range positions {
+		indexed[fmt.Sprintf("%s:%d", position.File, position.StartByte)] = position
+	}
 	changed := make(map[string]bool)
 	for _, pkg := range p.pkgs {
 		if pkg.TypesInfo == nil || pkg.Decorator == nil {
@@ -43,10 +58,29 @@ func (p *Program) Rename(sym *Symbol, to string) (int, error) {
 				if !sym.objs[obj] {
 					continue
 				}
+				df := p.ownedFile(pkg, id)
+				if df == nil {
+					continue
+				}
+				position := pkg.Fset.Position(id.Pos())
+				key := fmt.Sprintf("%s:%d", df.path, position.Offset)
+				indexedPosition, found := indexed[key]
+				if !found {
+					return 0, fmt.Errorf("UIR index omits %s at %s; run uir reindex", sym.Desc, key)
+				}
+				if indexedPosition.EndByte != position.Offset+len(id.Name) {
+					return 0, fmt.Errorf("UIR reference span does not match %s at %s", sym.Desc, key)
+				}
+				matched[key] = true
 				if pos, ok := p.setIdentName(pkg, id, to); ok {
 					changed[pos] = true
 				}
 			}
+		}
+	}
+	for key := range indexed {
+		if !matched[key] {
+			return 0, fmt.Errorf("UIR reference %s does not match %s in loaded Go types", key, sym.Desc)
 		}
 	}
 
