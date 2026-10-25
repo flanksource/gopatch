@@ -114,15 +114,16 @@ func Parse(fset *token.FileSet, filename string, src []byte) (*File, error) {
 			// top-level expression.
 			switch len(body.List) {
 			case 0:
-				// If the body is empty, the user didn't provide anything
-				// after the package/imports.
+				// Nothing follows the package clause and imports. That is a
+				// complete patch when there is a header to match or change
+				// ("-package foo" / "+package bar"), and it has no Node.
+				if file.Package != "" || len(file.Imports) > 0 {
+					return &file, nil
+				}
 
 				// TODO(abg): This should be the position after the package
 				// and imports.
 				return nil, fmt.Errorf("%v: expected a declaration or an expression, found EOF", adjuster.Position(body.Pos()))
-
-				// TODO(abg): We should support zero declarations for
-				// import/package-only transforms.
 			case 1:
 				// If the body contains a single expression, we want to do an
 				// expression transformation.

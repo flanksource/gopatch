@@ -279,6 +279,42 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// TestParseHeaderOnly covers a file that is only a package clause and/or
+// imports: it parses with no Node, which is how a patch that renames a package
+// clause without matching any code is written.
+func TestParseHeaderOnly(t *testing.T) {
+	tests := []struct {
+		desc        string
+		give        []byte
+		wantPackage string
+		wantImports []string
+	}{
+		{desc: "package clause", give: text.Unlines("package tracing"), wantPackage: "tracing"},
+		{desc: "imports", give: text.Unlines(`import "example.com/a"`), wantImports: []string{`"example.com/a"`}},
+		{
+			desc:        "package clause and imports",
+			give:        text.Unlines("package otel", "", `import "example.com/a"`),
+			wantPackage: "otel",
+			wantImports: []string{`"example.com/a"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			got, err := Parse(token.NewFileSet(), "test.go", tt.give)
+			require.NoError(t, err)
+
+			var imports []string
+			for _, spec := range got.Imports {
+				imports = append(imports, spec.Path.Value)
+			}
+			assert.Nil(t, got.Node)
+			assert.Equal(t, tt.wantPackage, got.Package)
+			assert.Equal(t, tt.wantImports, imports)
+		})
+	}
+}
+
 // Looks for ast.Idents and disconnects them from their ast.Objects.
 // Otherwise we end up with a cyclic reference.
 func disconnectIdentObj(v reflect.Value) {
@@ -316,11 +352,9 @@ func TestParseError(t *testing.T) {
 			wantErr: "test.go: expected a declaration or an expression, found EOF",
 		},
 		{
-			desc: "no decl",
-			give: text.Unlines(
-				"package foo",
-			),
-			wantErr: "test.go:1:11: expected a declaration or an expression, found EOF",
+			desc:    "comment only",
+			give:    text.Unlines("// nothing to match"),
+			wantErr: "expected a declaration or an expression, found EOF",
 		},
 		{
 			desc: "too many declarations",

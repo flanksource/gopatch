@@ -1,0 +1,55 @@
+Move one constant out of a grouped const block into the package that now owns its type.
+
+The block's type was moved first, so every spec is written against the
+destination's qualifier. Only the named spec moves: it arrives in the
+destination with the qualifier dropped, its sibling stays behind still
+qualified, and a reference in another source file is redirected to the new
+package. Spanning the whole group instead of the spec used to strip the
+qualifier from the siblings left in the source, which then failed to compile.
+
+-- args --
+move const xetrace/classify.go:StmtSelect sqltext/statement.go
+-- patterns --
+-- go.mod --
+module example.com/move
+
+go 1.23
+-- sqltext/classify.in.go --
+package sqltext
+
+type StatementType string
+-- sqltext/statement.new.go --
+package sqltext
+
+const StmtSelect StatementType = "SELECT"
+-- xetrace/classify.in.go --
+package xetrace
+
+import "example.com/move/sqltext"
+
+// Statement types reported by the classifier.
+const (
+	StmtSelect sqltext.StatementType = "SELECT"
+	StmtInsert sqltext.StatementType = "INSERT"
+)
+-- xetrace/classify.out.go --
+package xetrace
+
+import "example.com/move/sqltext"
+
+// Statement types reported by the classifier.
+const (
+	StmtInsert sqltext.StatementType = "INSERT"
+)
+-- xetrace/use.in.go --
+package xetrace
+
+import "example.com/move/sqltext"
+
+func IsRead(t sqltext.StatementType) bool { return t == StmtSelect && t != StmtInsert }
+-- xetrace/use.out.go --
+package xetrace
+
+import "example.com/move/sqltext"
+
+func IsRead(t sqltext.StatementType) bool { return t == sqltext.StmtSelect && t != StmtInsert }

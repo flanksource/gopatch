@@ -1,4 +1,5 @@
-TODO: Delete Foo() once we support pgo.File without Nodes.
+Rename a package clause in files that also match a body. The bare clause pair,
+with no body, is covered by rename_package_clause_only.
 
 -- rename.patch --
 @@
