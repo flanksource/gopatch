@@ -40,6 +40,9 @@ type File struct {
 	//
 	// pgo allows only one node at the top-level. It must be either a standard
 	// Go top-level declaration, an expression, or a list of statements.
+	//
+	// Node is nil when the file holds only a package clause and/or imports,
+	// which is how a patch that changes nothing but its header is written.
 	Node Node
 }
 

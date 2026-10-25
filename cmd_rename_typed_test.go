@@ -137,6 +137,23 @@ var _ = Describe("typed package and import rename", func() {
 		assertFileContains(filepath.Join(root, "app", "alias.go"), "legacy.Value")
 	})
 
+	It("renames the clauses of internal and external test files with the package", func() {
+		root := moveFixture(map[string]string{
+			"traces/httptraffic/httptraffic.go":            "package httptraffic\n\nconst Kind = \"http\"\n",
+			"traces/httptraffic/httptraffic_spec_test.go":  "package httptraffic\n\nimport \"testing\"\n\nfunc TestKind(t *testing.T) {\n\tif Kind == \"\" {\n\t\tt.Fatal(Kind)\n\t}\n}\n",
+			"traces/httptraffic/httptraffic_suite_test.go": "package httptraffic_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/move/traces/httptraffic\"\n)\n\nfunc TestSuite(t *testing.T) {\n\tif httptraffic.Kind == \"\" {\n\t\tt.Fatal(httptraffic.Kind)\n\t}\n}\n",
+			"app/app.go": "package app\n\nimport \"example.com/move/traces/httptraffic\"\n\nconst Kind = httptraffic.Kind\n",
+		})
+		cmd, _, _ := moveCommand(filepath.Join(root, "traces"))
+		require.NoError(GinkgoT(), cmd.Run([]string{"rename", "package", "httptraffic", "http", "./httptraffic"}))
+
+		dir := filepath.Join(root, "traces", "httptraffic")
+		assertFileContains(filepath.Join(dir, "httptraffic.go"), "package http\n")
+		assertFileContains(filepath.Join(dir, "httptraffic_spec_test.go"), "package http\n")
+		assertFileContains(filepath.Join(dir, "httptraffic_suite_test.go"), "package http_test\n", "http.Kind == \"\"")
+		assertFileContains(filepath.Join(root, "app", "app.go"), "const Kind = http.Kind")
+	})
+
 	It("renames an exact import path and preserves explicit aliases", func() {
 		root := moveFixture(map[string]string{
 			"old/value.go":    "package old\n\nconst Value = 1\n",

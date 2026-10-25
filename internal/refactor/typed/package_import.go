@@ -35,14 +35,23 @@ func (p *Program) ResolvePackage(from string, files []string) (string, error) {
 }
 
 // RenamePackageClause changes every file in one package and its unaliased uses.
+//
+// The package's external test package, "<from>_test" in the same directory,
+// is renamed to "<to>_test" with it: the go command requires an external test
+// package's name to be the package's own name plus "_test", so renaming one
+// without the other leaves a directory that no longer builds.
 func (p *Program) RenamePackageClause(importPath, from, to string) (int, error) {
 	changed := 0
 	for _, path := range p.order {
 		file := p.files[path]
-		if file.pkg.PkgPath != importPath || file.file.Name.Name != from {
+		switch {
+		case file.pkg.PkgPath == importPath && file.file.Name.Name == from:
+			file.file.Name.Name = to
+		case file.pkg.PkgPath == importPath+"_test" && file.file.Name.Name == from+"_test":
+			file.file.Name.Name = to + "_test"
+		default:
 			continue
 		}
-		file.file.Name.Name = to
 		p.mark(file)
 		changed++
 	}
