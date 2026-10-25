@@ -1,0 +1,44 @@
+Move an exported var to another file of the same package when it depends on an unexported constant.
+
+Source and destination share a package, so the move only relocates source and
+every unexported reference still resolves. The unexported-dependency check
+applies to cross-package moves only; it used to refuse this move, naming the
+reference inside the moved var rather than the declaration it found.
+
+-- args --
+move var xetrace/classify.go:FilterableTypes xetrace/filter.go
+-- patterns --
+-- go.mod --
+module example.com/move
+
+go 1.23
+-- xetrace/classify.in.go --
+package xetrace
+
+var FilterableTypes = []string{dmlGroup}
+
+func Classify() string { return dmlGroup }
+-- xetrace/classify.out.go --
+package xetrace
+
+func Classify() string { return dmlGroup }
+-- xetrace/filter.in.go --
+package xetrace
+
+const dmlGroup = "dml"
+-- xetrace/filter.out.go --
+package xetrace
+
+const dmlGroup = "dml"
+
+var FilterableTypes = []string{dmlGroup}
+-- xetrace/filter_test.in.go --
+package xetrace
+
+import "testing"
+
+func TestFilterable(t *testing.T) {
+	if FilterableTypes[0] != dmlGroup {
+		t.Fatal(FilterableTypes)
+	}
+}

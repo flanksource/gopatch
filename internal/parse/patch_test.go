@@ -198,6 +198,48 @@ func TestSeparatePatch(t *testing.T) {
 	})
 }
 
+// TestParseHeaderOnlyPatch covers changes with nothing after the package clause
+// and imports: allowed when both versions are header-only, refused when only
+// one is, because a header cannot replace code and an empty "+" body cannot
+// delete it.
+func TestParseHeaderOnlyPatch(t *testing.T) {
+	tests := []struct {
+		desc    string
+		give    []string
+		wantErr string
+	}{
+		{desc: "package clause rename", give: []string{"@@", "@@", "-package tracing", "+package otel"}},
+		{
+			desc:    "code removed with no replacement",
+			give:    []string{"@@", "@@", " package tracing", "", "-Foo()"},
+			wantErr: "only one of the - and + versions has code after the package clause and imports",
+		},
+		{
+			desc:    "code added with nothing to match",
+			give:    []string{"@@", "@@", " package tracing", "", "+Foo()"},
+			wantErr: "only one of the - and + versions has code after the package clause and imports",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			prog, err := Parse(token.NewFileSet(), "test.patch", text.Unlines(tt.give...))
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, prog.Changes, 1)
+			patch := prog.Changes[0].Patch
+			assert.Nil(t, patch.Minus.Node)
+			assert.Nil(t, patch.Plus.Node)
+			assert.Equal(t, "tracing", patch.Minus.Package)
+			assert.Equal(t, "otel", patch.Plus.Package)
+		})
+	}
+}
+
 // Returns the line in b starting at offset off.
 func tillEOL(b []byte, off int) []byte {
 	line := b[off:]

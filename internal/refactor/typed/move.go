@@ -530,6 +530,10 @@ func (p *Program) pieceForDefinition(pkg *decorator.Package, id *ast.Ident, labe
 		piece.remove = func() { removeDecl(df.file, dstDecl) }
 		return piece, nil
 	}
+	// One spec of a grouped declaration moves on its own, so the span that
+	// qualifyMovedDependencies and redirectRefs work within must be that spec:
+	// spanning the whole group would rewrite the siblings that stay behind.
+	piece.astNode = astSpec
 	piece.decl = &dst.GenDecl{Tok: gen.Tok, Specs: []dst.Spec{dstSpec}}
 	piece.remove = func() { removeSpec(gen, dstSpec) }
 	return piece, nil
@@ -577,7 +581,13 @@ func objectRef(obj types.Object) (MoveRef, bool) {
 	return ref, true
 }
 
+// qualifyMovedDependencies rewrites the package qualifiers of identifiers used
+// inside the moved spans. A move within one package only relocates source, so
+// every reference, exported or not, already resolves and nothing is rewritten.
 func (p *Program) qualifyMovedDependencies(sourcePkg, destPkg string, spans []moveSpan, moved []MoveRef) error {
+	if sourcePkg == destPkg {
+		return nil
+	}
 	var blocked []string
 	for _, pkg := range p.pkgs {
 		if pkg.TypesInfo == nil || pkg.Decorator == nil {
@@ -596,7 +606,7 @@ func (p *Program) qualifyMovedDependencies(sourcePkg, destPkg string, spans []mo
 				p.setIdentPath(pkg, id, "")
 			case ref.ImportPath == sourcePkg:
 				if !obj.Exported() {
-					blocked = append(blocked, p.pos(pkg, id.Pos())+" ("+obj.Name()+")")
+					blocked = append(blocked, p.pos(pkg, obj.Pos())+" ("+obj.Name()+")")
 					continue
 				}
 				p.setIdentPath(pkg, id, sourcePkg)
@@ -606,8 +616,7 @@ func (p *Program) qualifyMovedDependencies(sourcePkg, destPkg string, spans []mo
 		}
 	}
 	if len(blocked) > 0 {
-		sort.Strings(blocked)
-		return fmt.Errorf("moved code depends on unexported declarations that remain in %v: %s", sourcePkg, summarize(blocked))
+		return fmt.Errorf("moved code depends on unexported declarations that remain in %v: %s", sourcePkg, summarize(uniqueSorted(blocked)))
 	}
 	return nil
 }
