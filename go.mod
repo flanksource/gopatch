@@ -1,6 +1,6 @@
 module github.com/uber-go/gopatch
 
-go 1.26.1
+go 1.27.4
 
 require (
 	github.com/dave/dst v0.27.3
