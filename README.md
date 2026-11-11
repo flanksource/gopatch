@@ -67,11 +67,11 @@ transformations, it can be smarter because it understands Go syntax.
 Download a **pre-built binary** of gopatch from the [Releases page] or by
 running the following command in your terminal and place it on your `$PATH`.
 
-  [Releases page]: https://github.com/uber-go/gopatch/releases
+  [Releases page]: https://github.com/flanksource/gopatch/releases
 
 ```bash
 VERSION=0.4.0
-URL="https://github.com/uber-go/gopatch/releases/download/v$VERSION/gopatch_${VERSION}_$(uname -s)_$(uname -m).tar.gz"
+URL="https://github.com/flanksource/gopatch/releases/download/v$VERSION/gopatch_$(uname -s)_$(uname -m).tar.gz"
 curl -L "$URL" | tar xzv gopatch
 ```
 
@@ -88,7 +88,20 @@ built rather than reporting `unknown`. It installs into `$GOBIN`, or
 `$(go env GOPATH)/bin` when that is unset; pass `INSTALL_BIN=<dir>` to put it
 somewhere else.
 
-Building from source requires Go 1.26.1 or newer.
+Building from source requires the Go version declared in `go.mod` or newer. To build this fork, clone `https://github.com/flanksource/gopatch.git` and run `GOWORK=off make install`; the module path remains the upstream path.
+
+### Docker
+
+Releases publish `ghcr.io/flanksource/gopatch` for Linux amd64 and arm64 with `vX.Y.Z`, `X.Y.Z`, and `latest` tags. The image includes Go and Git for typed refactoring. Mount your project at `/workspace`:
+
+```bash
+docker run --rm -v "$PWD:/workspace" ghcr.io/flanksource/gopatch:latest --help
+docker run --rm -v "$PWD:/workspace" ghcr.io/flanksource/gopatch:latest move func source.go:Hello moved.go --dry-run
+```
+
+Use the versioned tag for reproducible automation. Commands that apply changes write to the mounted project. Private dependencies require the same credentials and network access as a local Go build.
+
+The analysis utility under [`hack/gopatch-effectiveness`](hack/gopatch-effectiveness) is a separate development module. Run `make build-hack test-hack lint-hack` to check hack modules explicitly.
 
 ## Your first patch
 

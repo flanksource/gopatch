@@ -11,6 +11,7 @@ GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo 
 # installed dev build does not claim to be "unknown".
 INSTALL_BIN ?= $(if $(ENV_GOBIN),$(ENV_GOBIN),$(shell go env GOPATH)/bin)
 VERSION ?= $(GIT_VERSION)
+HACK_MODULES := $(patsubst %/go.mod,%,$(wildcard hack/*/go.mod))
 
 export GO111MODULE=on
 export GOBIN ?= $(shell pwd)/$(BIN)
@@ -30,6 +31,24 @@ all: build lint test
 .PHONY: build
 build:
 	go build ./...
+
+.PHONY: binary build-hack test-hack lint-hack
+binary:
+	go build -trimpath -ldflags '-s -w -X main._version=$(VERSION)' -o $(BIN)/gopatch .
+
+build-hack: $(addprefix build-,$(HACK_MODULES))
+test-hack: $(addprefix test-,$(HACK_MODULES))
+lint-hack: $(addprefix lint-,$(HACK_MODULES))
+
+.PHONY: $(addprefix build-,$(HACK_MODULES)) $(addprefix test-,$(HACK_MODULES)) $(addprefix lint-,$(HACK_MODULES))
+$(addprefix build-,$(HACK_MODULES)):
+	GOWORK=off go -C $(@:build-%=%) build -o $(abspath $(BIN))/ ./...
+
+$(addprefix test-,$(HACK_MODULES)):
+	GOWORK=off go -C $(@:test-%=%) test -race ./...
+
+$(addprefix lint-,$(HACK_MODULES)): $(GOLINT) $(STATICCHECK)
+	$(MAKE) -C $(@:lint-%=%) -f $(abspath Makefile) GOWORK=off GOLINT=$(abspath $(GOLINT)) STATICCHECK=$(abspath $(STATICCHECK)) golint staticcheck
 
 .PHONY: install
 install:
