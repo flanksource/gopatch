@@ -1,35 +1,24 @@
-Take the following steps to release a new version of gopatch.
+# Releases
 
-1. Ensure that the CHANGELOG.md has an entry for every **user-facing** change.
-   Do not add entries for changes that are not user-facing.
+Successful CI on `main` invokes the reusable release workflow. Conventional Commit `fix:` and `perf:` commits trigger patch releases, `feat:` triggers minor releases, and breaking changes trigger major releases. Commits without a release-worthy change do not publish.
 
-2. Change the "Unreleased" header to the target version number *without* the
-   `v` prefix and add today's date in YYYY-MM-DD format. For example, if the
-   target version is `v1.2.3`, add:
+The pipeline uses Flanksource action-workflows v1.3.0, pinned by commit, to create a draft through semantic-release, publish signed multi-platform images to GHCR, and publish the draft after all artifacts and smoke checks succeed. It uses the repository GITHUB_TOKEN; GitHub Actions must be allowed to write contents and packages. Fork pull requests only run checks.
 
-    ```diff
-    -## Unreleased
-    +## 1.2.3 - 2021-08-18
-    ```
+GoReleaser v2.12.7 attaches Linux, macOS, and Windows amd64/arm64 archives and checksums to the draft, retaining semantic-release notes. Linux/macOS archives use tar.gz and Windows uses ZIP. Docker publishes `vX.Y.Z`, `X.Y.Z`, and `latest` tags for Linux amd64/arm64. Hack modules are checked but not published.
 
-3. Update the `VERSION` constant in the Installation section of the README.md.
+Versioning creates no release commit. Both the release tag and the shared Docker workflow's event checkout therefore refer to the CI-verified source revision. Keep this invariant if adding semantic-release plugins.
 
-    ```diff
-    -VERSION=1.2.2
-    +VERSION=1.2.3
-    ```
+Local verification (no publication):
 
-4. Create a new PR with the change and the following title:
+```bash
+GOWORK=off make lint lint-hack build build-hack cover test-hack
+actionlint .github/workflows/go.yml .github/workflows/release.yml
+GOWORK=off go run github.com/goreleaser/goreleaser/v2@v2.12.7 check
+GOWORK=off go run github.com/goreleaser/goreleaser/v2@v2.12.7 release --snapshot --clean --skip=publish
+docker build --build-arg VERSION=ci --build-arg GO_VERSION=1.27.4 -t gopatch:ci .
+bash .github/scripts/smoke-image.sh gopatch:ci ci
+```
 
-    ```
-    Preparing release v1.2.3
-    ```
+The Docker Go version must match `go.mod`; CI derives it through setup-go. The smoke check verifies version/help and previews, applies, and compiles a typed move in a disposable module. Snapshot archives are written under `.tmp/dist`.
 
-5. After landing the PR, tag the release with an **annotated** git tag and push
-   the tag.
-
-    ```
-    $ git pull
-    $ git tag -a v1.2.3 -m v1.2.3
-    $ git push origin v1.2.3
-    ```
+If packaging fails, the release remains a draft; inspect the failed job and rerun it from the original workflow run after resolving the cause. Do not move existing release tags. A full rerun may report no new semantic release, so rerun failed jobs rather than creating another version.
