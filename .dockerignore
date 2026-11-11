@@ -1,0 +1,8 @@
+.git
+.tmp
+bin
+dist
+go.work
+go.work.sum
+cover.out
+cover.html
