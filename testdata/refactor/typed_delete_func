@@ -1,0 +1,45 @@
+Deletes a function nothing calls, and the import left with no other user.
+
+The patch language cannot do this at all: its replacement section may not be
+empty. The doc comment goes with the declaration, and "strings" goes with its
+only caller, because the restorer rebuilds the import block from what the file
+still refers to.
+
+-- args --
+delete func shout
+
+-- go.mod --
+module example.com/typeddelete
+
+go 1.22
+
+-- app/app.in.go --
+package app
+
+import "strings"
+
+// Keep is called below.
+func Keep(s string) string {
+	return s + "!"
+}
+
+// shout is called by nothing.
+func shout(s string) string {
+	return strings.ToUpper(s)
+}
+
+func run() string {
+	return Keep("x")
+}
+
+-- app/app.out.go --
+package app
+
+// Keep is called below.
+func Keep(s string) string {
+	return s + "!"
+}
+
+func run() string {
+	return Keep("x")
+}

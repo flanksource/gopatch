@@ -1,0 +1,33 @@
+Refuses to delete a type something still refers to, and writes nothing.
+
+The reference is in another package, which is why the whole module is loaded
+rather than just the paths named on the command line. want.error makes the test
+assert the refusal and that every file came out untouched.
+
+-- args --
+delete struct Config
+
+-- want.error --
+type Config is still used at
+
+-- go.mod --
+module example.com/typedrefuse
+
+go 1.22
+
+-- cfg/cfg.in.go --
+package cfg
+
+// Config is referred to from another package.
+type Config struct {
+	Name string
+}
+
+-- app/app.in.go --
+package app
+
+import "example.com/typedrefuse/cfg"
+
+func Name(c cfg.Config) string {
+	return c.Name
+}

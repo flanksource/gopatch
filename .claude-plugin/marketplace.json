@@ -1,0 +1,15 @@
+{
+  "name": "flanksource-gopatch",
+  "description": "Skills for gopatch — mechanical Go refactoring over the syntax tree, for agents that would otherwise reach for sed",
+  "owner": {
+    "name": "Flanksource",
+    "url": "https://github.com/flanksource"
+  },
+  "plugins": [
+    {
+      "name": "gopatch-skills",
+      "description": "Rewrite Go code across files with gopatch instead of sed, perl or awk — renames, signature changes, call-site sweeps, struct field changes, and deleting declarations",
+      "source": "./.agents"
+    }
+  ]
+}

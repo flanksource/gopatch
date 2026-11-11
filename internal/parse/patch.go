@@ -61,6 +61,14 @@ func (p *parser) parsePatch(i int, c *section.Change) (*Patch, error) {
 		return nil, err
 	}
 
+	// A header-only side has nothing for the other side's body to replace or
+	// be replaced by, and an empty "+" body cannot delete a match.
+	if (patch.Minus.Node == nil) != (patch.Plus.Node == nil) {
+		return nil, p.errf(c.AtPos, "invalid change: only one of the - and + versions has code after "+
+			"the package clause and imports; a patch that changes only the package clause or imports "+
+			"must have no code on either side")
+	}
+
 	// FIXME: Hack: If one of minus and plus believes their side is an
 	// statement and the other believes it's an expression, make them both
 	// expresisons.
@@ -91,6 +99,11 @@ func (p *parser) parsePatchVersion(name string, f patchVersion) (*pgo.File, erro
 	pfile, err := pgo.Parse(p.fset, name, f.Contents)
 	if err != nil {
 		return nil, err
+	}
+	if pfile.Node == nil {
+		// The line table below only maps the node's positions, and a
+		// header-only version has none.
+		return pfile, nil
 	}
 
 	// TODO: fill position data for lines before msrc.Node.

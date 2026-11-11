@@ -1,0 +1,23 @@
+{
+  "name": "gopatch-skills",
+  "version": "0.1.0",
+  "description": "Claude Code skills for gopatch — mechanical Go refactoring over the syntax tree instead of sed, perl or awk",
+  "author": {
+    "name": "Flanksource",
+    "url": "https://github.com/flanksource"
+  },
+  "repository": "https://github.com/flanksource/gopatch",
+  "license": "MIT",
+  "keywords": [
+    "go",
+    "golang",
+    "gopatch",
+    "refactor",
+    "rename",
+    "codemod",
+    "sed",
+    "ast",
+    "migration"
+  ],
+  "skills": ["./skills/gopatch"]
+}

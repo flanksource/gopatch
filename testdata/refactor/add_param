@@ -1,0 +1,54 @@
+Adds a leading parameter to a function, and the import its type needs.
+
+The function's current signature is read from the source and reproduced exactly.
+Nothing in the signature is elided: "..." in a result list makes go/format fail,
+and two of them in one signature cross-connect.
+
+Call sites are not updated, which the description says out loud.
+
+The file already imports something. That matters: gopatch cannot add the FIRST
+import to a file — with no import block to extend it inserts a duplicate
+declaration and drops the import — so the command refuses that case rather than
+producing it. See TestRequireImportBlock.
+
+-- args --
+add param Send ctx context.Context --import context
+
+-- want.patch --
+# add parameter ctx context.Context to func Send (call sites are not updated)
+@@
+@@
+ package sender
++import "context"
+
+-func Send(r *Request) (*Response, error) {
++func Send(ctx context.Context, r *Request) (*Response, error) {
+   ...
+ }
+
+-- send.in.go --
+package sender
+
+import "errors"
+
+func Send(r *Request) (*Response, error) {
+	return nil, errors.New("nope")
+}
+
+type Request struct{}
+type Response struct{}
+
+-- send.out.go --
+package sender
+
+import (
+	"context"
+	"errors"
+)
+
+func Send(ctx context.Context, r *Request) (*Response, error) {
+	return nil, errors.New("nope")
+}
+
+type Request struct{}
+type Response struct{}

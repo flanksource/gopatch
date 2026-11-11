@@ -1,0 +1,61 @@
+A patch made of nothing but a package clause pair renames that clause in every
+file declaring the package and leaves other packages alone.
+
+-- rename.patch --
+@@
+@@
+-package tracing
++package otel
+
+-- span.in.go --
+package tracing
+
+import "fmt"
+
+// Span is a unit of work.
+type Span struct{ Name string }
+
+func (s Span) String() string { return fmt.Sprint(s.Name) }
+
+-- span.out.go --
+package otel
+
+import "fmt"
+
+// Span is a unit of work.
+type Span struct{ Name string }
+
+func (s Span) String() string { return fmt.Sprint(s.Name) }
+
+-- span.diff --
+--- span.go
++++ span.go
+@@ -1,4 +1,4 @@
+-package tracing
++package otel
+ 
+ import "fmt"
+ 
+-- span_test.in.go --
+package tracing
+
+-- span_test.out.go --
+package otel
+
+-- span_test.diff --
+--- span_test.go
++++ span_test.go
+@@ -1,1 +0,0 @@
+-package tracing
+@@ -0,0 +1,1 @@
++package otel
+
+-- other.in.go --
+package metrics
+
+const Name = "tracing"
+
+-- other.out.go --
+package metrics
+
+const Name = "tracing"

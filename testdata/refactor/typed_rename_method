@@ -1,0 +1,82 @@
+Renames a method, the interface it implements, and the other implementation.
+
+Renaming only the method would compile this package and break the assignment in
+SaveAll, so all three move together. The call through the interface moves with
+them. Comments are left alone: a rename rewrites identifiers, and guessing which
+words in prose named the method would corrupt the ones that did not.
+
+-- args --
+rename method File.Save Store
+
+-- go.mod --
+module example.com/typedmethod
+
+go 1.22
+
+-- store/store.in.go --
+package store
+
+// Saver is implemented by both types below.
+type Saver interface {
+	Save() error
+}
+
+// File saves to disk.
+type File struct{}
+
+// Save writes the file.
+func (f *File) Save() error { return nil }
+
+// Memory saves nowhere.
+type Memory struct{}
+
+// Save discards the data.
+func (m Memory) Save() error { return nil }
+
+// SaveAll is what ties the implementations to the interface.
+func SaveAll(savers ...Saver) error {
+	for _, s := range savers {
+		if err := s.Save(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func run() error {
+	return SaveAll(&File{}, Memory{})
+}
+
+-- store/store.out.go --
+package store
+
+// Saver is implemented by both types below.
+type Saver interface {
+	Store() error
+}
+
+// File saves to disk.
+type File struct{}
+
+// Save writes the file.
+func (f *File) Store() error { return nil }
+
+// Memory saves nowhere.
+type Memory struct{}
+
+// Save discards the data.
+func (m Memory) Store() error { return nil }
+
+// SaveAll is what ties the implementations to the interface.
+func SaveAll(savers ...Saver) error {
+	for _, s := range savers {
+		if err := s.Store(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func run() error {
+	return SaveAll(&File{}, Memory{})
+}

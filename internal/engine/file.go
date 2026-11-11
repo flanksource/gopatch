@@ -40,13 +40,16 @@ type FileMatcher struct {
 	// Imports in the file.
 	Imports ImportsMatcher
 
-	// Matches nodes in the file.
+	// Matches nodes in the file. Nil for a patch that has only a package
+	// clause and imports, which match the file on their own.
 	NodeMatcher Matcher
 }
 
 func (c *matcherCompiler) compileFile(file *pgo.File) FileMatcher {
 	var m Matcher
 	switch n := file.Node.(type) {
+	case nil:
+		// Header-only patch: the package clause and imports are the match.
 	case *pgo.Expr:
 		m = c.compile(reflect.ValueOf(n.Expr))
 	case *pgo.GenDecl:
@@ -79,13 +82,14 @@ func (m FileMatcher) Match(file *ast.File, d data.Data) (data.Data, bool) {
 	if !ok {
 		return d, ok
 	}
+	if m.NodeMatcher == nil {
+		return data.WithValue(d, fileMatchKey, fileMatchData{File: file}), true
+	}
 
 	// To match the body, we use astutil.Apply which traverses the AST and
 	// provides a replaceable pointer to each node so that we can rewrite
 	// the AST in-place.
 	var matches []*SearchResult
-	// TODO(abg): Support nil NodeMatcher for when a patch is matching on
-	// just the package name or import paths.
 	astutil.Apply(file, func(cursor *astutil.Cursor) bool {
 		d := d // don't change outer d
 
@@ -137,6 +141,8 @@ type FileReplacer struct {
 func (c *replacerCompiler) compileFile(file *pgo.File) FileReplacer {
 	var r Replacer
 	switch n := file.Node.(type) {
+	case nil:
+		// Header-only patch: there are no node matches to replace.
 	case *pgo.Expr:
 		r = c.compile(reflect.ValueOf(n.Expr))
 	case *pgo.GenDecl:

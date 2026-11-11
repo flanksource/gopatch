@@ -1,0 +1,45 @@
+Renames a struct in its declaring package and in another package in the module.
+
+-- args --
+rename struct HTTPClient Client --package http
+
+-- go.mod --
+module example.com/project
+
+go 1.23
+
+-- http/client.in.go --
+package http
+
+type HTTPClient struct{}
+
+func New() *HTTPClient {
+	return &HTTPClient{}
+}
+
+-- http/client.out.go --
+package http
+
+type Client struct{}
+
+func New() *Client {
+	return &Client{}
+}
+
+-- app/consumer.in.go --
+package app
+
+import "example.com/project/http"
+
+func run(c *http.HTTPClient) *http.HTTPClient {
+	return c
+}
+
+-- app/consumer.out.go --
+package app
+
+import "example.com/project/http"
+
+func run(c *http.Client) *http.Client {
+	return c
+}

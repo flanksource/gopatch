@@ -1,61 +1,89 @@
-name: release
-
+name: Release
 on:
-  push:
-    tags: ['v*']
-
-permissions:
-  contents: write
-
+  workflow_call:
+    inputs:
+      go-version:
+        required: true
+        type: string
+permissions: {}
+concurrency:
+  group: release
+  cancel-in-progress: false
 jobs:
-  release:
+  version:
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: flanksource/action-workflows/.github/workflows/create-release.yml@807c141342c97374e637b4375e3a54e62cd8736e # v1.3.0
+  binaries:
+    needs: version
+    if: needs.version.outputs.published == 'true'
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
+    env:
+      GOWORK: "off"
     steps:
-    - name: Setup Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: 1.22.x
-
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - name: Load cached dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-
-    - name: Prepare release
-      run: |
-        set -eou pipefail
-        make bin/extract-changelog
-
-        # Extract target version number from the git tag and post it to
-        # GITHUB_ENV to make it accessible via env.VERSION in other steps.
-        VERSION=${{ github.ref }}
-        VERSION="${VERSION#refs/tags/}"  # refs/tags/v1.2.3 => v1.2.3
-        echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-        echo "Releasing $VERSION"
-
-        # Place the release notes in changes.v1.2.3.txt to grab them in the
-        # release step.
-        echo "Release notes:"
-        echo "----"
-        bin/extract-changelog $VERSION | tee changes.$VERSION.txt
-        echo "----"
-
-    - name: Release
-      uses: goreleaser/goreleaser-action@v6
-      with:
-        distribution: goreleaser
-        version: latest
-        args: release --clean --release-notes changes.${{ env.VERSION }}.txt
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        GORELEASER_CURRENT_TAG: ${{ env.VERSION }}
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: v2.12.7
+          args: release --clean --parallelism 2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  docker:
+    needs: version
+    if: needs.version.outputs.published == 'true'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: flanksource/action-workflows/.github/workflows/publish-multi-platform-docker-image.yml@807c141342c97374e637b4375e3a54e62cd8736e # v1.3.0
+    with:
+      login_to_dockerhub: false
+      platforms: linux/amd64,linux/arm64
+      image_tags: |
+        ghcr.io/${{ github.repository }}:${{ needs.version.outputs.tag }}
+        ghcr.io/${{ github.repository }}:${{ needs.version.outputs.version }}
+        ghcr.io/${{ github.repository }}:latest
+      build_args: |
+        VERSION=${{ needs.version.outputs.version }}
+        GO_VERSION=${{ inputs.go-version }}
+  smoke:
+    needs: [version, binaries, docker]
+    if: needs.version.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify published image
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}@${{ needs.docker.outputs.digest }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: bash .github/scripts/smoke-image.sh "$IMAGE" "$VERSION"
+  publish:
+    needs: [version, smoke]
+    if: needs.version.outputs.published == 'true'
+    permissions:
+      contents: write
+    uses: flanksource/action-workflows/.github/workflows/publish-release.yml@807c141342c97374e637b4375e3a54e62cd8736e # v1.3.0
+    with:
+      tag: ${{ needs.version.outputs.tag }}
+    secrets:
+      token: ${{ secrets.GITHUB_TOKEN }}

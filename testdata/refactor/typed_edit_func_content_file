@@ -1,0 +1,60 @@
+Reads a replacement body from a file with "--content @<path>".
+
+The path is resolved against the working directory. A "@" needs no escape,
+because no Go token begins with one, so content that would be mistaken for a
+file reference could not have compiled anyway.
+
+The file holds statements, not a Go file — that is why it is not named ".go",
+and why the harness writes ".txt" members out without treating them as
+refactoring targets.
+
+-- args --
+edit func Deliver --content @body.txt --import errors
+
+-- body.txt --
+if id == "" {
+	return errors.New("no id")
+}
+return nil
+
+-- go.mod --
+module example.com/contentfile
+
+go 1.22
+
+-- send/send.in.go --
+package send
+
+import "log"
+
+// Deliver used to log.
+func Deliver(id string) error {
+	log.Printf("delivering %v", id)
+	return nil
+}
+
+// Keep keeps log in use, so the import does not go away with the body.
+func Keep() {
+	log.Print("kept")
+}
+
+-- send/send.out.go --
+package send
+
+import (
+	"errors"
+	"log"
+)
+
+// Deliver used to log.
+func Deliver(id string) error {
+	if id == "" {
+		return errors.New("no id")
+	}
+	return nil
+}
+
+// Keep keeps log in use, so the import does not go away with the body.
+func Keep() {
+	log.Print("kept")
+}

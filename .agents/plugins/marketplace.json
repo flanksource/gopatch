@@ -1,0 +1,19 @@
+{
+  "name": "flanksource-gopatch",
+  "interface": {
+    "displayName": "Flanksource gopatch"
+  },
+  "plugins": [
+    {
+      "name": "gopatch-skills",
+      "source": {
+        "source": "local",
+        "path": "./.agents"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

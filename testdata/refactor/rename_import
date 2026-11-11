@@ -1,0 +1,44 @@
+Rewrites an import path whose package name changes with it.
+
+Every qualified reference moves to the new name, and the import left unused is
+removed automatically by the engine.
+
+-- args --
+rename import example.com/old/thing example.com/new/gadget
+
+-- go.mod --
+module example.com
+
+go 1.23
+
+-- old/thing/value.in.go --
+package thing
+
+type Value struct{}
+
+func New() Value { return Value{} }
+
+-- new/gadget/value.in.go --
+package gadget
+
+type Value struct{}
+
+func New() Value { return Value{} }
+
+-- app.in.go --
+package app
+
+import "example.com/old/thing"
+
+func run() thing.Value {
+	return thing.New()
+}
+
+-- app.out.go --
+package app
+
+import "example.com/new/gadget"
+
+func run() gadget.Value {
+	return gadget.New()
+}

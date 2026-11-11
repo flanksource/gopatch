@@ -1,0 +1,29 @@
+Refuses an unqualified target that two packages both declare.
+
+Choosing one would rename the wrong User everywhere, so the message names the
+packages it found and both spellings that disambiguate.
+
+-- args --
+rename field User.Name Title
+
+-- want.error --
+field User.Name is declared in more than one package (example.com/ambiguous/api, example.com/ambiguous/store); qualify the target with the one you mean, as in "example.com/ambiguous/api.User.Name", or with the directory it is in
+
+-- go.mod --
+module example.com/ambiguous
+
+go 1.22
+
+-- store/user.in.go --
+package store
+
+type User struct {
+	Name string
+}
+
+-- api/user.in.go --
+package api
+
+type User struct {
+	Name string
+}

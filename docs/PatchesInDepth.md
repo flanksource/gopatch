@@ -295,102 +295,37 @@ These imports are matched exactly as-is. That is, the unnamed import will only
 match files which import the package unnamed, and the named import will only
 match files that import the package with that exact name.
 
-<table>
-<thead><tr><th>Patch</th><th>Input</th><th>Matches</th></tr></thead>
-<tbody>
-<tr><td>
+An unnamed import in the patch matches only an unnamed import in the file.
 
-```diff
-@@
-@@
- import "example.com/bar"
-
-# ...
+```
+# Patch                          | # Input                          | Matches
+@@                               | package foo                      |
+@@                               |                                  | Yes
+ import "example.com/bar"        | import "example.com/bar"         |
 ```
 
-</td><td>
+A named import matches only that exact name.
 
-```go
-package foo
-
-import "example.com/bar"
+```
+# Patch                          | # Input                          | Matches
+@@                               | package foo                      |
+@@                               |                                  | Yes
+ import mybar "example.com/bar"  | import mybar "example.com/bar"   |
 ```
 
-</td><td>
+Neither form matches the other, and a different name does not match either.
 
-Yes
-
-</td></tr>
-<tr><td>
-
-```diff
-@@
-@@
- import mybar "example.com/bar"
-
-# ...
 ```
+# Patch                          | # Input                          | Matches
+@@                               | package foo                      |
+@@                               |                                  | No
+ import "example.com/bar"        | import mybar "example.com/bar"   |
 
-</td><td>
-
-```go
-package foo
-
-import mybar "example.com/bar"
+# Patch                          | # Input                          | Matches
+@@                               | package foo                      |
+@@                               |                                  | No
+ import mybar "example.com/bar"  | import notmybar "example.com/bar"|
 ```
-
-</td><td>
-
-Yes
-
-</td></tr>
-<tr><td>
-
-```diff
-@@
-@@
- import "example.com/bar"
-
-# ...
-```
-
-</td><td>
-
-```go
-package foo
-
-import mybar "example.com/bar"
-```
-
-</td><td>
-
-No
-
-</td></tr>
-<tr><td>
-
-```diff
-@@
-@@
- import mybar "example.com/bar"
-
-# ...
-```
-
-</td><td>
-
-```go
-package foo
-
-import notmybar "example.com/bar"
-```
-
-</td><td>
-
-No
-
-</td></tr>
-</tbody></table>
 
 #### Matching any import
 
@@ -1027,31 +962,15 @@ prefix.
 
 For example,
 
-<table>
-<thead><tr><th>Before</th><th>After</th></tr></thead>
-<tbody>
-<tr><td>
-
-```diff
-@@
-@@
--foo(...)
-+bar(...)
 ```
-
-</td><td>
-
-```diff
-@@
-@@
--foo(
-+bar(
-   ...,
- )
+# Before                        | # After
+@@                              | @@
+@@                              | @@
+-foo(...)                       | -foo(
++bar(...)                       | +bar(
+                                |    ...,
+                                |  )
 ```
-
-</td></tr>
-</tbody></table>
 
 ## Grammar
 
@@ -1122,31 +1041,14 @@ following diff,
 
 Becomes two files:
 
-<table>
-<thead><tr><th>Find</th><th>Replace</th></tr></thead>
-<tbody>
-<tr><td>
-
-```go
-x, err := foo(...)
-if err != nil {
-  ...
-  return err
-}
 ```
-
-</td><td>
-
-```go
-x, err := bar(...)
-if err != nil {
-  ...
-  return nil, err
-}
+# Find                          | # Replace
+x, err := foo(...)              | x, err := bar(...)
+if err != nil {                 | if err != nil {
+  ...                           |   ...
+  return err                    |   return nil, err
+}                               | }
 ```
-
-</td></tr>
-</tbody></table>
 
 Both these versions should be *almost* valid Go code with the following
 exceptions:

@@ -12,7 +12,13 @@ refactoring and restyling.
   - [Apply the patch](#apply-the-patch)
   - [Next steps](#next-steps)
 - [Usage](#usage)
+  - [Commands](#commands)
+    - [Inspecting the source tree](#inspecting-the-source-tree)
+    - [Finding symbol references](#finding-symbol-references)
+    - [Commands that generate a patch](#commands-that-generate-a-patch)
+    - [Commands that use type information](#commands-that-use-type-information)
   - [Options](#options)
+  - [Agent skills](#agent-skills)
 - [Patches](#patches)
   - [Metavariables](#metavariables)
   - [Statements](#statements)
@@ -61,11 +67,11 @@ transformations, it can be smarter because it understands Go syntax.
 Download a **pre-built binary** of gopatch from the [Releases page] or by
 running the following command in your terminal and place it on your `$PATH`.
 
-  [Releases page]: https://github.com/uber-go/gopatch/releases
+  [Releases page]: https://github.com/flanksource/gopatch/releases
 
 ```bash
 VERSION=0.4.0
-URL="https://github.com/uber-go/gopatch/releases/download/v$VERSION/gopatch_${VERSION}_$(uname -s)_$(uname -m).tar.gz"
+URL="https://github.com/flanksource/gopatch/releases/download/v$VERSION/gopatch_$(uname -s)_$(uname -m).tar.gz"
 curl -L "$URL" | tar xzv gopatch
 ```
 
@@ -75,7 +81,27 @@ it with the following command.
 ```bash
 go install github.com/uber-go/gopatch@latest
 ```
-Note: If you're using Go < 1.16, use `go get github.com/uber-go/gopatch@latest` instead.
+
+From a checkout, `make install` does the same thing and additionally stamps the
+version from `git describe`, so `gopatch version` identifies the commit you
+built rather than reporting `unknown`. It installs into `$GOBIN`, or
+`$(go env GOPATH)/bin` when that is unset; pass `INSTALL_BIN=<dir>` to put it
+somewhere else.
+
+Building from source requires the Go version declared in `go.mod` or newer. To build this fork, clone `https://github.com/flanksource/gopatch.git` and run `GOWORK=off make install`; the module path remains the upstream path.
+
+### Docker
+
+Releases publish `ghcr.io/flanksource/gopatch` for Linux amd64 and arm64 with `vX.Y.Z`, `X.Y.Z`, and `latest` tags. The image includes Go and Git for typed refactoring. Mount your project at `/workspace`:
+
+```bash
+docker run --rm -v "$PWD:/workspace" ghcr.io/flanksource/gopatch:latest --help
+docker run --rm -v "$PWD:/workspace" ghcr.io/flanksource/gopatch:latest move func source.go:Hello moved.go --dry-run
+```
+
+Use the versioned tag for reproducible automation. Commands that apply changes write to the mounted project. Private dependencies require the same credentials and network access as a local Go build.
+
+The analysis utility under [`hack/gopatch-effectiveness`](hack/gopatch-effectiveness) is a separate development module. Run `make build-hack test-hack lint-hack` to check hack modules explicitly.
 
 ## Your first patch
 
@@ -117,11 +143,11 @@ return fmt.Errorf("invalid port: %v", err)
   $ cd ~/go/src/example.com/myproject
   ```
 
-  Run `gopatch` on the project, supplying the previously written patch with the
-  `-p` flag.
+  Run `gopatch patch` on the project, supplying the previously written patch
+  with the `-p` flag.
 
   ```shell
-  $ gopatch -p ~/s1028.patch ./...
+  $ gopatch patch -p ~/s1028.patch ./...
   ```
 
   This will apply the patch on all Go code in your project.
@@ -134,11 +160,11 @@ return fmt.Errorf("invalid port: %v", err)
   $ cd ~/go/src/example.com/myproject
   ```
 
-  Run `gopatch` on the project, supplying the previously written patch with the
-  `-p` flag along with '-d' flag.
+  Run `gopatch patch` on the project, supplying the previously written patch
+  with the `-p` flag along with '-d' flag.
 
   ```shell
-  $ gopatch -d -p ~/s1028.patch ./...
+  $ gopatch patch -d -p ~/s1028.patch ./...
   ```
 
   This will turn on diff mode and will write the diff to stdout instead of modifying all
@@ -148,7 +174,7 @@ return fmt.Errorf("invalid port: %v", err)
   
   For example if we applied patch ~/s1028 to our testfile error.go
   ```shell
-  $ gopatch -d -p ~/s1028.patch ./testdata/test_files/diff_example/
+  $ gopatch patch -d -p ~/s1028.patch ./testdata/test_files/diff_example/
   ```
   Output would be : 
   ```
@@ -182,19 +208,309 @@ To experiment with other sample patches, check out the [Examples] section.
 
 # Usage
 
-To use the gopatch command line tool, provide the following arguments.
+To apply a patch file, provide the following arguments.
 
 ```
-gopatch [options] pattern ...
+gopatch patch [options] pattern ...
 ```
 
 Where pattern specifies one or more Go files, or directories containing Go
 files. For directories, all Go code inside them and their descendants will be
 considered by gopatch.
 
+Flags and patterns may be given in any order, and `gopatch -- <path>` forces a
+path to be treated as a path even when it shares a name with a subcommand.
+
+> **Deprecated:** patches may still be applied by the root command, as
+> `gopatch [options] pattern ...`. That spelling now prints a warning to stderr
+> and will be removed in v0.6.0. Use `gopatch patch`. It also resolves a bare
+> `examples` or `patches` argument to the help topic of that name, so a
+> directory called either needs `gopatch -- examples`; `gopatch patch` does not
+> have that problem.
+
+The reference documentation ships inside the binary, so it is available from a
+`go install` build with no checkout:
+
+```shell
+gopatch help patches         # the patch language, in depth
+gopatch help metavariables   # identifiers vs expressions vs statements
+gopatch help examples        # the five patches in examples/, ready to run
+```
+
+## Commands
+
+For the common mechanical refactorings you do not need to write a patch at all.
+These subcommands take the change as arguments instead.
+
+```
+gopatch patch          [options]                   [pattern...]
+gopatch tree                                       [pattern...]
+gopatch ref            <symbol>
+
+gopatch rename struct  <Old> <New>                 [pattern...]
+gopatch rename type    <Old> <New>                 [pattern...]
+gopatch rename func    <old> <new>                 [pattern...]
+gopatch rename package <old> <new>                 [pattern...]
+gopatch rename import  <old-path> <new-path>       [pattern...]
+gopatch rename field   <Struct>.<field> <new>      [pattern...]
+gopatch rename method  <Recv>.<method> <new>       [pattern...]
+
+gopatch move   file    <source.go> <destination-dir|destination.go>
+gopatch move   struct  <target> <destination.go>
+gopatch move   type    <target> <destination.go>
+gopatch move   func    <target> <destination.go>
+gopatch move   var     <target> <destination.go>
+gopatch move   const   <target> <destination.go>
+gopatch move   method  <Type>.<method> <destination.go>
+
+gopatch add    field   <Struct>.<field> <type>     [pattern...]
+gopatch add    param   <func> <name> <type>        [pattern...]
+gopatch add    struct  <Name> <file.go>
+gopatch add    func    <name> <file.go>            --params '...' --results '...'
+gopatch add    method  <Recv>.<name> <file.go>     --params '...' --results '...'
+
+gopatch delete field   <Struct>.<field>            [pattern...]
+gopatch delete struct  <Name>                      [pattern...]
+gopatch delete type    <Name>                      [pattern...]
+gopatch delete func    <name>                      [pattern...]
+gopatch delete method  <Recv>.<method>             [pattern...]
+
+gopatch edit   field   <Struct>.<field> --type T | --tag '...'
+gopatch edit   func    <name>                      --params '...' --results '...'
+gopatch edit   func    <name>                      --content '...' | --content @file
+gopatch edit   method  <Recv>.<method>             --params '...' --results '...'
+gopatch edit   method  <Recv>.<method>             --content '...' | --content @file
+
+gopatch replace func   <name>            --match <re> --content '...'
+gopatch replace method <Recv>.<method>   --match <re> --content '...'
+
+gopatch install        [skill...]        [--agent <id>] [--dir <path>]
+```
+
+They are served by two engines, and each command's `--help` says which one it
+uses. Both support `--diff` and in-place rewriting. Commands that transform
+existing files also support `--print-only`; `move` uses `--dry-run` for a
+compact relocation summary instead.
+
+### Inspecting the source tree
+
+`gopatch tree` prints a Clicky tree of package nodes, their Go files, and each package-level declaration with its source line, using ANSI colors on terminal output. Functions and methods include parameter names and types plus their starting and ending lines; callable names, punctuation, parameter names, and parameter types use distinct syntax colors. Methods are nested below their receiver type; when the receiver is declared outside the inspected file, they are nested below a receiver-specific `methods` node. It parses syntax without loading types, so it also works when a module is mid-refactor and does not compile. Paths accept the same files, directories, and `./...` suffix as transformation commands; with no path it inspects `./...`. Test files are excluded unless `--tests=true` is set.
+
+```shell
+gopatch tree
+gopatch tree ./internal/...
+gopatch tree ./model/user.go
+gopatch tree --private=false --methods=true --functions=true --fields=false --variables=false --tests=false ./...
+```
+
+### Finding symbol references
+
+`gopatch ref` resolves a package-level declaration, field, or method with Go type information, then reads its definitions and uses from an existing UIR index. It prints a Clicky tree grouped by package and file. Each location includes its line, column, and trimmed source line. Method results include linked interface methods and their concrete implementations.
+
+```shell
+uir --dsn "$UIR_DSN" add --include-tests .
+gopatch ref User --uir-dsn "$UIR_DSN"
+gopatch ref User.Name --package model --uir-dsn "$UIR_DSN"
+gopatch ref store.User.Name --uir-dsn "$UIR_DSN"
+gopatch ref ./internal/store:User.Name --consumers ../services --uir-dsn "$UIR_DSN"
+```
+
+The command searches the owning module, requiring modules in the active `go.work`, and consumer modules selected through `.gopatch.yml`, `--consumers`, or `--consumers-from`. Index each selected module with `uir --dsn "$UIR_DSN" add --include-tests <path>` before running it; use `reindex --include-tests <path>` after source changes. All searched modules must type-check and have complete, current UIR snapshots. `--uir-schema` selects a PostgreSQL schema when needed. A dotted target such as `store.User` can mean either `User` in package `store` or field/method `User` on type `store`; when both exist, gopatch reports both candidates and asks for a package or path-qualified target.
+
+### Naming the target
+
+Every command above takes its target as a dotted name, and every one of them
+accepts that name qualified with the package or the directory that declares it:
+
+```
+User.Name                     the field, in whichever package declares User
+store.User.Name               ... in the package whose clause is "store"
+example.com/store.User.Name   ... in the package at that import path
+./internal/store:User.Name    ... in the package under that directory
+user.go:User.Name             ... in the package that file belongs to
+```
+
+A path qualifier is separated with `:`, because an import path may contain dots
+and slashes but never a colon. It has to be recognizable as a path, so a bare
+directory is written `./store`, not `store`. The name is split off from the
+right, which is what makes `gopkg.in/yaml.v3.Node` the type `Node` in
+`gopkg.in/yaml.v3` rather than four segments of something.
+
+A qualifier is only needed when the name is ambiguous, and gopatch says so when
+it is instead of choosing a package for you:
+
+```shell
+$ gopatch edit field User.ID --type UUID ./...
+"User" is declared in packages [api store]; qualify field with the one you mean, as in "api.User.ID"
+```
+
+`--package <clause>` is the older spelling of a package-name qualifier and still
+works; giving both is refused rather than resolved by precedence.
+
+For commands that generate a patch, the qualifier selects and scopes the syntactic match. For typed renames, it identifies the exact declaration; references in the module, active Go workspace, and selected consumer modules move with it.
+
+`add struct|func|method` are the exception — they never take a qualified name,
+because their `<file.go>` argument already says which package the new
+declaration goes into.
+
+### Commands that generate a patch
+
+`add field|param`, `delete field` and `edit field|func` build a gopatch program from their arguments and run it through the engine described in the rest of this document. `--print-patch` writes that program to stdout instead of applying it.
+
+```shell
+$ gopatch add field User.Enabled bool --package model --print-patch
+@@
+@@
+ type User struct {
+
++Enabled bool
+```
+
+These syntactic commands work on code that does not compile, but match by name rather than type. Review them with `--diff` when scope is not obvious.
+
+### Commands that use type information
+
+`ref`, every `rename` command, `move`, `delete struct|type|func|method`,
+`add struct|func|method`, `edit method`, `edit func --content` and `replace`
+cannot be expressed as a patch. A patch matching `x.Name` would rewrite every
+type's `Name`; a patch cannot delete a declaration at all, because its
+replacement section may not be empty; it cannot create one, because it would
+have nothing to match; a receiver and a parameter list in one change need two
+elisions, which cross-connect; and a whole function body is not something a
+minus section can match.
+
+These resolve the target with `go/types` and rewrite the source with
+[dave/dst], so they change exactly the references that mean the same symbol:
+
+```shell
+$ gopatch rename field User.Name Title --uir-dsn "$UIR_DSN" -d ./...
+```
+
+renames the declaration, every `u.Name` on a `User`, and every `User{Name: ...}`
+key, in every package of the module — and leaves another type's `Name` alone.
+
+Symbol renames (`struct`, `type`, `func`, `field`, and `method`) use the existing UIR index as the reference source. The index must contain every selected module with test files included. Gopatch verifies each snapshot and source hash before writing and refuses missing, stale, or incomplete coverage. It still uses Go type information for target resolution, collision checks, and method interface relationships. Package and import path renames use their existing separate flow.
+
+Every rename and move automatically includes requiring modules from the active `go.work`. Pass `--consumers <dir>` more than once, list search directories one per line in `--consumers-from <file>`, or configure search roots in `.gopatch.yml`. Gopatch recursively finds modules whose `go.mod` requires the producer module; `rename import` instead finds modules containing the exact old import path, including unrelated third-party paths.
+
+```shell
+gopatch rename field User.Name Title --uir-dsn "$UIR_DSN" --consumers ../services --consumers ../tools ./...
+gopatch rename method Client.Do Send --uir-dsn "$UIR_DSN" --consumers-from repos.txt --diff ./...
+```
+
+Project configuration at the producer module root overrides user configuration, including an empty consumer list. When the project file is absent, gopatch reads `~/.gopatch.yml`:
+
+```yaml
+consumers:
+  - ../consumer-repos
+  - ~/go/src/github.com/example
+```
+
+Configured paths are relative to the configuration file. `~/` is expanded, symlinks are canonicalized, duplicates are removed, and missing roots or unknown YAML keys fail before refactoring. Supplying either consumer CLI flag replaces configured roots; an explicit CLI search that finds no matching module is an error, while configured roots with no match are a successful no-op. Active `go.work` consumers are always unioned in.
+
+Consumer source is resolved against the producer version its module currently requires. Updating that requirement is a separate dependency-management step; local `replace` directives and `go.work` files continue to control which producer source `go/packages` sees.
+
+### Moving files and declarations
+
+`gopatch move` relocates a complete Go file or one package-level declaration. Moving within a package only changes file ownership. Moving to another package updates the package clause, imports, and typed references throughout the producer module, every module in the active `go.work`, and any additional consumers selected with `--consumers` or `--consumers-from`.
+
+```shell
+gopatch move file internal/old/user.go internal/model/ --dry-run
+gopatch move struct old.User internal/model/user.go --diff
+gopatch move func file.go:Load internal/config/load.go
+gopatch move var old.DefaultTimeout internal/config/defaults.go
+gopatch move method file.go:Client.Close internal/client/close.go
+```
+
+A named type carries all of its receiver methods. A method moved alone must remain in its receiver's package. Empty source files are removed, a missing destination directory becomes a package named after that directory, and an existing destination file must declare the target package.
+
+Before writing, gopatch renders and type-checks the complete producer-and-consumer overlay. It refuses destination name collisions, import cycles, private dependencies that would become inaccessible, incompatible test/build contexts, partial `init` ownership changes, cgo files, and unsafe grouped constants. `--dry-run` prints paths, package changes, declaration and reference counts, and file create/update/delete counts without source content; `--diff` prints the full patch. The two modes are mutually exclusive.
+
+As edits are planned, rename and move commands print Clicky-formatted lines to stderr in every output mode, keeping stdout clean for diffs and source output:
+
+```text
+✏️ target update old/user.go
+➕ target create new/user.go
+✏️ consumer example.com/app update app/main.go
+```
+
+These are planned changes and can appear before a later validation failure. Default-mode writes remain transactional: after the full overlay validates, either every target and consumer file is installed or the original set is restored.
+
+In exchange they need the module to compile. If it does not, they report the
+build errors and change nothing. A few more consequences:
+
+-   The whole module is loaded, whatever paths you give, because a reference can
+    live in any package. The paths bound what may be *written*: if the change
+    reaches a file they do not cover, the command says so and writes nothing,
+    rather than applying half a rename.
+-   Consumer search roots include normal nested modules and skip hidden, underscore-prefixed, `vendor` and `testdata` directories. A selected consumer that does not reference the symbol is simply unchanged, but it must still type-check.
+-   `rename method` moves the interface methods a type is required to have, and
+    their other implementations, along with the method. If one of them is
+    outside the module — `fmt.Stringer`, say — the rename is refused.
+-   `delete` refuses while anything still refers to the declaration, and lists
+    the positions. An import left with no other user goes with it.
+-   `add struct|func|method` append to a named file. A generated function's body
+    is `panic("not implemented")`, so the file still compiles. A signature that
+    names a package the file does not import yet needs `--import <path>`, or
+    `--import <qualifier>=<path>` to add it under an explicit alias.
+-   `edit method --params/--results` changes the signature and nothing else. Like
+    `edit func`, it updates neither call sites nor bodies, so adding a result
+    leaves the method without a return statement for you to write — which is
+    what `--content` is for, in a second run.
+-   `--print-patch` and `--skip-import-processing` are not accepted, because
+    there is no patch and the engine owns the import block.
+
+  [dave/dst]: https://github.com/dave/dst
+
+### Replacing a body
+
+`--content` on `edit func` and `edit method` replaces a function's whole body.
+It takes Go statements — not a whole function, and not the braces — or
+`@<path>` to read them from a file:
+
+```shell
+$ gopatch edit method Client.Do --content 'return c.transport.RoundTrip(r)' ./...
+$ gopatch edit func  Send       --content @hack/send.go --import log/slog ./...
+$ gopatch edit func  Send       --content '' ./...
+```
+
+`gopatch replace` changes part of a body instead, by regular expression:
+
+```shell
+$ gopatch replace func Send --match 'log\.Printf\((.*)\)' --content 'slog.Info($1)' --import log/slog ./...
+```
+
+This is the escape hatch for a change no pattern over the syntax tree expresses
+well — a log call's arguments, a string literal, a comment. It is a textual
+substitution, but a scoped one: the body is located with type information, so
+the expression cannot reach another function, another type's same-named method,
+or another package's same-named declaration. The pattern sees the body's source
+as written, comments included, between the braces and not including them; it
+spans the whole body, so `^` and `$` anchor the body rather than a line unless
+you write `(?m)`.
+
+Three things are refused rather than guessed at:
+
+-   A pattern that **matches nothing** is an error. Exiting 0 having changed
+    nothing is what a mistyped expression looks like otherwise.
+-   Content that **is not valid Go** is rejected before anything is written, and
+    the message shows what the substitution produced.
+-   `--content` cannot be combined with `--params`/`--results`. On `edit func`
+    they are different engines; on `edit method` they are the same engine but
+    still separate runs, because the body you write has to be the one the new
+    signature needs, and you cannot see it until the signature has changed.
+
+Neither is type-checked, though — only parsed. A body that refers to a name that
+is not in scope, or that names a package you did not pass `--import` for, is
+written out and fails at build time. A qualifier is only resolved to an import
+when the file already imports it or `--import` says so, because nothing in a
+reparsed body distinguishes a package reference from `c.Host`.
+
 ## Options
 
-gopatch supports the following command line options.
+Every flag is documented in the binary — `gopatch patch --help`, and
+`--help` on any subcommand — so what follows is the same text with worked
+examples, not a second source of truth.
 
 - `-p file`, `--patch=file`
 
@@ -204,13 +520,13 @@ gopatch supports the following command line options.
     Provide this flag multiple times to apply multiple patches in-order.
 
     ```shell
-    $ gopatch -p foo.patch -p bar.patch path/to/my/project
+    $ gopatch patch -p foo.patch -p bar.patch path/to/my/project
     ```
 
     If this flag is omitted, a patch is expected on stdin.
 
     ```shell
-    $ gopatch path/to/my/project << EOF
+    $ gopatch patch path/to/my/project << EOF
     @@
     @@
     -foo
@@ -226,7 +542,7 @@ gopatch supports the following command line options.
     Only need to apply the flag once to turn on diff mode
 
     ```shell
-    $ gopatch -d -p foo.patch -p bar.patch path/to/my/project
+    $ gopatch patch -d -p foo.patch -p bar.patch path/to/my/project
     ```
 
     If this flag is omitted, normal patching occurs which modifies the
@@ -237,14 +553,14 @@ gopatch supports the following command line options.
   file and display applied patches' description comments to stderr if they exist.
   
     ```shell
-    $ gopatch --print-only -p foo.patch -p bar.patch path/to/my/project
+    $ gopatch patch --print-only -p foo.patch -p bar.patch path/to/my/project
     ```  
 - `--skip-import-processing`
   
   Flag to turn on skip-import-processing mode. Provide this flag to disable
   import formatting for imports that were not part of the patch changes.
     ```shell
-    $ gopatch --skip-import-processing -p foo.patch -p bar.patch path/to/my/project
+    $ gopatch patch --skip-import-processing -p foo.patch -p bar.patch path/to/my/project
     ```
 
 - `--skip-generated`
@@ -254,15 +570,46 @@ gopatch supports the following command line options.
   has `@generated` or `^// Code generated .* DO NOT EDIT\.$` in the comment
   header.
     ```shell
-    $ gopatch --skip-generated -p foo.patch -p bar.patch path/to/my/project
+    $ gopatch patch --skip-generated -p foo.patch -p bar.patch path/to/my/project
     ```
+
+## Agent skills
+
+gopatch ships with a skill for AI coding agents that teaches them to reach for
+it instead of `sed -i` when they have to change Go code in more than one place.
+The files are embedded in the binary, so this needs no checkout and no network.
+
+```shell
+$ gopatch install
+gopatch: 4 created  ~/.claude/skills/gopatch
+gopatch: 4 created  ~/.codex/skills/gopatch
+```
+
+With no arguments it installs every skill into every agent it finds a
+configuration directory for — `agents` (the client-agnostic `~/.agents/skills`
+convention), `claude`, `codex`, `cursor`, `gemini` and `opencode`. Re-running is
+safe: files that already match are reported as `unchanged`, and a skill
+directory that is a symlink to a checkout is left alone rather than written
+through.
+
+```shell
+$ gopatch install --list            # what this binary carries, and what is here
+$ gopatch install --dry-run         # report without writing
+$ gopatch install --agent claude    # one agent, detected or not
+$ gopatch install --dir ./.agents/skills   # a directory of your choosing
+```
+
+The skill source lives in [`.agents/skills`](.agents/skills), and the same
+directory is published as a plugin for the Claude Code and Codex marketplaces —
+see [`.agents/README.md`](.agents/README.md).
 
 # Patches
 
 Patch files are the input to gopatch that specify how to transform code. Each
 patch file contains one or more patches. This section provides an introduction
 to writing patches; look at [Patches in depth] for a more detailed
-explanation.
+explanation, or run `gopatch help patches`, which prints the same document from
+inside the binary.
 
 Each patch specifies a code transformation. These are formatted like unified
 diffs: lines prefixed with `-` specify matching code should be deleted, and
@@ -612,7 +959,7 @@ When diff mode is turned on by the `-d`/`--diff` flag, gopatch will print
 description comments for patches that matched different files to stderr.
 
 ```shell
-$ gopatch -d -p ~/s1028.patch testdata/test_files/diff_example/error.go
+$ gopatch patch -d -p ~/s1028.patch testdata/test_files/diff_example/error.go
 error.go:Replace redundant fmt.Sprintf with fmt.Errorf
 --- error.go
 +++ error.go
@@ -634,6 +981,9 @@ Other comments will be ignored.
 
 This section lists various example patches you can try in your code.
 Note that some of these patches are not perfect and may have false positives.
+
+All five ship inside the binary: `gopatch help examples` prints them with a
+description of what each one demonstrates.
 
 - [s1012.patch](examples/s1012.patch): Fix for staticcheck [S1012](https://staticcheck.io/docs/checks#S1012).
 - [s1028.patch](examples/s1028.patch): Fix for staticcheck [S1028](https://staticcheck.io/docs/checks#S1028).
